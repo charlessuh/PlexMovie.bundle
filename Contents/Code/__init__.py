@@ -82,7 +82,7 @@ class PlexMovieAgent(Agent.Movies):
 
 
   def getPlexMovieResults(self, media, matches, search_type='hash', plex_hash=''):
-    if search_type is 'hash':
+    if search_type is 'hash' and plex_hash is not None:
       url = '%s/%s/hash/%s/%s.xml' % (PLEXMOVIE_URL, PLEXMOVIE_BASE, plex_hash[0:2], plex_hash)
     else:
       titleyear_guid = self.titleyear_guid(media.name,media.year)

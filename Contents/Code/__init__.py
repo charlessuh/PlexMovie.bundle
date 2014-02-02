@@ -23,11 +23,6 @@ YEAR_PENALTY_MAX = 10 # Maximum amount to penalize for mismatched years.
 GOOD_SCORE = 98 # Score required to short-circuit matching and stop searching.
 SEARCH_RESULT_PERCENTAGE_THRESHOLD = 80 # Minimum 'percentage' value considered credible for PlexMovie results. 
 
-# Google fallback tunables.
-SCORE_THRESHOLD_IGNORE = 85
-SCORE_THRESHOLD_IGNORE_PENALTY = 100 - SCORE_THRESHOLD_IGNORE
-SCORE_THRESHOLD_IGNORE_PCT = float(SCORE_THRESHOLD_IGNORE_PENALTY)/100
-PERCENTAGE_BONUS_MAX = 20
 
 def Start():
   HTTP.CacheTime = CACHE_1WEEK
@@ -368,7 +363,7 @@ class PlexMovieAgent(Agent.Movies):
               # Check to see if the item's release year is in the future, if so penalize.
               if imdbYear > Datetime.Now().year:
                 Log(imdbName + ' penalizing for future release date')
-                scorePenalty += SCORE_THRESHOLD_IGNORE_PENALTY 
+                scorePenalty += 10
             
               # Check to see if the hinted year is different from imdb's year, if so penalize.
               elif media.year and imdbYear and int(media.year) != int(imdbYear): 
@@ -387,13 +382,13 @@ class PlexMovieAgent(Agent.Movies):
                 scorePenalty += -5
               
               # Sanity check to make sure we have SOME common substring.
-              longestCommonSubstring = len(Util.LongestCommonSubstring(media.name.lower(), imdbName.lower()))
+              longestCommonSubstring = len(Util.LongestCommonSubstring(media.name.lower(), imdbName.lower()).strip())
               
-              # If we don't have at least 10% in common, then penalize below the 80 point threshold
-              if (float(longestCommonSubstring) / len(media.name)) < SCORE_THRESHOLD_IGNORE_PCT: 
-                Log(imdbName + ' terrible subtring match. skipping')
-                scorePenalty += SCORE_THRESHOLD_IGNORE_PENALTY 
-              
+              # If we don't find at least 50% of the media.name in the match, penalize below the 80 point threshold.
+              if (float(longestCommonSubstring) / len(media.name)) < .5: 
+                Log(imdbName + ' penalizing for longest common substring < 50%')
+                scorePenalty += 20
+
               # Finally, add the result.
               idMap[id] = True
               Log("score = %d" % (score - scorePenalty - subsequentSearchPenalty))

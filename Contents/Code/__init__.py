@@ -4,10 +4,27 @@ import re, time, unicodedata, hashlib, urlparse, types, urllib
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
 #
 GOOGLE_JSON_URL = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&userip=%s&rsz=large&q=%s'
-FREEBASE_URL    = 'http://freebase.plexapp.com'
+#FREEBASE_URL    = 'http://freebase.plexapp.com'
 FREEBASE_BASE   = 'movies'
-PLEXMOVIE_URL   = 'http://plexmovie.plexapp.com'
+#PLEXMOVIE_URL   = 'http://plexmovie.plexapp.com'
 PLEXMOVIE_BASE  = 'movie'
+
+# Phased rollout of traffic to new metadata servers
+try:
+  import random
+  NEW_BASEURL_PCT = 5
+  if (random.random() * 100 < NEW_BASEURL_PCT):
+    FREEBASE_URL = 'http://md02.plex.tv'
+    PLEXMOVIE_URL = 'http://md02.plex.tv'
+  else:
+    raise
+except:
+  FREEBASE_URL    = 'http://freebase.plexapp.com'
+  PLEXMOVIE_URL   = 'http://plexmovie.plexapp.com'
+Log('Using freebase URL: ' + FREEBASE_URL)
+Log('Using plexmovie URL: ' + PLEXMOVIE_URL)
+# End phased rollout stuff
+
 
 MPDB_ROOT = 'http://movieposterdb.plexapp.com'
 MPDB_JSON = MPDB_ROOT + '/1/request.json?imdb_id=%s&api_key=p13x2&secret=%s&width=720&thumb_width=100'
@@ -123,6 +140,8 @@ class PlexMovieAgent(Agent.Movies):
 
 
   def scoreResults(self, media, matches):
+
+    Log('Scoring ' + str(matches))
 
     for key in matches.keys():
       match = matches[key]

@@ -12,7 +12,7 @@ PLEXMOVIE_BASE  = 'movie'
 # Phased rollout of traffic to new metadata servers
 try:
   import random
-  NEW_BASEURL_PCT = 25
+  NEW_BASEURL_PCT = 50
   if (random.random() * 100 < NEW_BASEURL_PCT):
     FREEBASE_URL = 'http://md02.plex.tv'
     PLEXMOVIE_URL = 'http://md02.plex.tv'
@@ -237,7 +237,7 @@ class PlexMovieAgent(Agent.Movies):
       # Add scored hash results to search results.
       for key in hash_matches.keys():
         match = hash_matches[key]
-        if int(match[3]) >= SEARCH_RESULT_PERCENTAGE_THRESHOLD and not manual:
+        if int(match[3]) >= SEARCH_RESULT_PERCENTAGE_THRESHOLD or manual:
           best_name, year = get_best_name_and_year(key[2:], lang, match[1], match[2], lockedNameMap)
           Log("Adding hash match: %s (%s) score=%d" % (best_name, year, match[5]))
           results.Append(MetadataSearchResult(id = key, name  = best_name, year = year, lang  = lang, score = match[5]))
@@ -261,7 +261,7 @@ class PlexMovieAgent(Agent.Movies):
       # Add scored title year results to search results.
       for key in title_year_matches.keys():
         match = title_year_matches[key]
-        if int(match[3]) >= SEARCH_RESULT_PERCENTAGE_THRESHOLD and not manual:
+        if int(match[3]) >= SEARCH_RESULT_PERCENTAGE_THRESHOLD or manual:
           best_name, year = get_best_name_and_year(key[2:], lang, match[1], match[2], lockedNameMap)
           Log("Adding title_year match: %s (%s) score=%d" % (best_name, year, match[5]))
           results.Append(MetadataSearchResult(id = key, name  = best_name, year = year, lang  = lang, score = match[5]))

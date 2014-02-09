@@ -12,7 +12,7 @@ PLEXMOVIE_BASE  = 'movie'
 # Phased rollout of traffic to new metadata servers
 try:
   import random
-  NEW_BASEURL_PCT = 5
+  NEW_BASEURL_PCT = 25
   if (random.random() * 100 < NEW_BASEURL_PCT):
     FREEBASE_URL = 'http://md02.plex.tv'
     PLEXMOVIE_URL = 'http://md02.plex.tv'

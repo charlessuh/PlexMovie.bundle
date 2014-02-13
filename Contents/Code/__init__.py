@@ -4,26 +4,14 @@ import re, time, unicodedata, hashlib, urlparse, types, urllib
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
 #
 GOOGLE_JSON_URL = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&userip=%s&rsz=large&q=%s'
-#FREEBASE_URL    = 'http://freebase.plexapp.com'
+FREEBASE_URL    = 'http://meta.plex.tv'
 FREEBASE_BASE   = 'movies'
-#PLEXMOVIE_URL   = 'http://plexmovie.plexapp.com'
+PLEXMOVIE_URL   = 'http://meta.plex.tv'
 PLEXMOVIE_BASE  = 'movie'
 
-# Phased rollout of traffic to new metadata servers
-try:
-  import random
-  NEW_BASEURL_PCT = 50
-  if (random.random() * 100 < NEW_BASEURL_PCT):
-    FREEBASE_URL = 'http://md02.plex.tv'
-    PLEXMOVIE_URL = 'http://md02.plex.tv'
-  else:
-    raise
-except:
-  FREEBASE_URL    = 'http://freebase.plexapp.com'
-  PLEXMOVIE_URL   = 'http://plexmovie.plexapp.com'
+# TODO: this log output is not needed in the log run...
 Log('Using freebase URL: ' + FREEBASE_URL)
 Log('Using plexmovie URL: ' + PLEXMOVIE_URL)
-# End phased rollout stuff
 
 
 MPDB_ROOT = 'http://movieposterdb.plexapp.com'

@@ -146,16 +146,19 @@ class PlexMovieAgent(Agent.Movies):
         score_penalty += (COUNT_PENALTY_THRESHOLD-total_cnt)/COUNT_PENALTY_THRESHOLD * COUNT_PENALTY_MAX
       
       # Year penalty/bonus.
-      if int(year) > Datetime.Now().year:
-        score_penalty += FUTURE_RELEASE_DATE_PENALTY
+      try:
+        if int(year) > Datetime.Now().year:
+          score_penalty += FUTURE_RELEASE_DATE_PENALTY
 
-      if media.year and year:
-        per_year_penalty = int(YEAR_PENALTY_MAX / 3)
-        year_delta = abs(int(media.year)-(int(year)))
-        if year_delta > 3:
-          score_penalty += YEAR_PENALTY_MAX
-        else:
-          score_penalty += year_delta * per_year_penalty
+        if media.year and year:
+          per_year_penalty = int(YEAR_PENALTY_MAX / 3)
+          year_delta = abs(int(media.year)-(int(year)))
+          if year_delta > 3:
+            score_penalty += YEAR_PENALTY_MAX
+          else:
+            score_penalty += year_delta * per_year_penalty
+      except:
+        Log('Exception applying year penalty/bonus')
 
       # Store the final score in the result vector.
       matches[key][5] = INITIAL_SCORE - dist - score_penalty

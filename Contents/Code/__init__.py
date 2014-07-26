@@ -1,4 +1,5 @@
-import re, time, unicodedata, hashlib, urlparse, types, urllib
+import re, time, unicodedata, hashlib, urlparse, types
+from urllib2 import HTTPError
 
 # [might want to look into language/country stuff at some point] 
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
@@ -8,11 +9,6 @@ FREEBASE_URL    = 'http://meta.plex.tv'
 FREEBASE_BASE   = 'movies'
 PLEXMOVIE_URL   = 'http://meta.plex.tv'
 PLEXMOVIE_BASE  = 'movie'
-
-# TODO: this log output is not needed in the log run...
-Log('Using freebase URL: ' + FREEBASE_URL)
-Log('Using plexmovie URL: ' + PLEXMOVIE_URL)
-
 
 MPDB_ROOT = 'http://movieposterdb.plexapp.com'
 MPDB_JSON = MPDB_ROOT + '/1/request.json?imdb_id=%s&api_key=p13x2&secret=%s&width=720&thumb_width=100'
@@ -28,12 +24,53 @@ YEAR_PENALTY_MAX = 10 # Maximum amount to penalize for mismatched years.
 GOOD_SCORE = 98 # Score required to short-circuit matching and stop searching.
 SEARCH_RESULT_PERCENTAGE_THRESHOLD = 80 # Minimum 'percentage' value considered credible for PlexMovie results. 
 
+# Extras.
+PLEXMOVIE_EXTRAS_URL = 'http://127.0.0.1:32400/services/iva/metadata/%s?lang=%s&extras=1'
+IVA_ASSET_URL = 'iva://api.internetvideoarchive.com/2.0/DataService/VideoAssets(%s)?lang=%s&bitrates=%s&duration=%s'
+TYPE_ORDER = ['primary_trailer', 'trailer', 'behind_the_scenes', 'scene_or_sample']
+IVA_LANGUAGES = {-1   : Locale.Language.Unknown,
+                  0   : Locale.Language.English,
+                  12  : Locale.Language.Swedish, 
+                  3   : Locale.Language.French, 
+                  2   : Locale.Language.Spanish, 
+                  32  : Locale.Language.Dutch, 
+                  10  : Locale.Language.German, 
+                  11  : Locale.Language.Italian, 
+                  9   : Locale.Language.Danish, 
+                  26  : Locale.Language.Arabic, 
+                  44  : Locale.Language.Catalan,
+                  8   : Locale.Language.Chinese, 
+                  18  : Locale.Language.Czech,
+                  80  : Locale.Language.Estonian,
+                  33  : Locale.Language.Finnish,
+                  5   : Locale.Language.Greek,
+                  15  : Locale.Language.Hebrew,
+                  36  : Locale.Language.Hindi,
+                  29  : Locale.Language.Hungarian,
+                  276 : Locale.Language.Indonesian,
+                  7   : Locale.Language.Japanese,
+                  13  : Locale.Language.Korean,
+                  324 : Locale.Language.Latvian,
+                  21  : Locale.Language.Norwegian,
+                  24  : Locale.Language.Persian,
+                  40  : Locale.Language.Polish,
+                  17  : Locale.Language.Portuguese,
+                  28  : Locale.Language.Romanian,
+                  4   : Locale.Language.Russian,
+                  105 : Locale.Language.Slovak,
+                  25  : Locale.Language.Thai,
+                  64  : Locale.Language.Turkish,
+                  493 : Locale.Language.Ukrainian,
+                  50  : Locale.Language.Vietnamese}
+
 
 def Start():
   HTTP.CacheTime = CACHE_1WEEK
   
 class PlexMovieAgent(Agent.Movies):
   name = 'Freebase'
+  contributes_to = ['com.plexapp.agents.themoviedb']
+
   languages = [Locale.Language.English, Locale.Language.Swedish, Locale.Language.French, 
                Locale.Language.Spanish, Locale.Language.Dutch, Locale.Language.German, 
                Locale.Language.Italian, Locale.Language.Danish,Locale.Language.Arabic, 
@@ -184,7 +221,14 @@ class PlexMovieAgent(Agent.Movies):
     # See if we're being passed a raw ID.
     findByIdCalled = False
     if media.guid or re.match('t*[0-9]{7}', media.name):
-      theGuid = media.guid or media.name 
+      
+      theGuid = media.guid or media.name
+      
+      # If this looks like a TMDB GUID, get the IMDB ID.
+      tmdb_search = re.search(r'^(com.plexapp.agents.themoviedb://)([\d]+)\?.+', theGuid)
+      if tmdb_search and tmdb_search.group(1) and tmdb_search.group(2):
+        theGuid = imdb_id_from_tmdb(tmdb_search.group(2))
+
       if not theGuid.startswith('tt'):
         theGuid = 'tt' + theGuid
       Log('Found an ID, attempting quick match based on: ' + theGuid)
@@ -465,8 +509,13 @@ class PlexMovieAgent(Agent.Movies):
       setTitle = True
       metadata.title = media.title
 
-    # Hit our repository.
-    guid = re.findall('tt([0-9]+)', metadata.guid)[0]
+    # If this looks like a TMDB GUID, get the IMDB ID.
+    tmdb_search = re.search(r'^(com.plexapp.agents.themoviedb://)([\d]+)\?.+', metadata.guid)
+    if tmdb_search and tmdb_search.group(1) and tmdb_search.group(2):
+      guid = imdb_id_from_tmdb(tmdb_search.group(2))
+    else:
+      guid = re.findall('tt([0-9]+)', metadata.guid)[0]
+
     url = '%s/%s/%s/%s.xml' % (FREEBASE_URL, FREEBASE_BASE, guid[-2:], guid)
 
     try:
@@ -480,28 +529,13 @@ class PlexMovieAgent(Agent.Movies):
           metadata.title = name
 
       # Runtime.
-      if int(movie.get('runtime')) > 0:
+      if int(movie.get('runtime') or 0) > 0:
         metadata.duration = int(movie.get('runtime')) * 60 * 1000
 
       # Genres.
       metadata.genres.clear()
-      genreMap = {}
-      
-      for genre in movie.xpath('genre'):
-        id = genre.get('id')
-        genreLang = genre.get('lang')
-        genreName = genre.get('genre')
-        
-        if not genreMap.has_key(id) and genreLang in ('en', lang):
-          genreMap[id] = [genreLang, genreName]
-          
-        elif genreMap.has_key(id) and genreLang == lang:
-          genreMap[id] = [genreLang, genreName]
-        
-      keys = genreMap.keys()
-      keys.sort()
-      for id in keys:
-        metadata.genres.add(genreMap[id][1])
+      for genre in [g.get('genre') for g in movie.xpath('genre') if g.get('lang') == lang]:
+        metadata.genres.add(genre)
 
       # Directors.
       metadata.directors.clear()
@@ -553,8 +587,128 @@ class PlexMovieAgent(Agent.Movies):
       except:
         pass
       
+      # Extras.
+      try: 
+        # Do a quick check to make sure we've got the types available in this framework version, and that the server
+        # is new enough to support the IVA endpoints.
+        t = InterviewObject()
+        if Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,13):
+          find_extras = True
+        else:
+          find_extras = False
+          Log('Not adding extras: Server v0.9.9.13+ required')
+      except NameError, e:
+        Log('Not adding extras: Framework v2.5.0+ required')
+        find_extras = False
+
+      if find_extras and Prefs['extras']:
+
+        TYPE_MAP = {'primary_trailer' : TrailerObject,
+                    'trailer' : TrailerObject,
+                    'interview' : InterviewObject,
+                    'behind_the_scenes' : BehindTheScenesObject,
+                    'scene_or_sample' : SceneOrSampleObject}
+
+        try:
+          req = PLEXMOVIE_EXTRAS_URL % (metadata.id[2:], lang)
+          xml = XML.ElementFromURL(req)
+
+          extras = []
+          media_title = None
+          for extra in xml.xpath('//extra'):
+            avail = Datetime.ParseDate(extra.get('originally_available_at'))
+            lang_code = int(extra.get('lang_code')) if extra.get('lang_code') else -1
+            subtitle_lang_code = int(extra.get('subtitle_lang_code')) if extra.get('subtitle_lang_code') else -1
+
+            spoken_lang = IVA_LANGUAGES.get(lang_code) or Locale.Language.Unknown
+            subtitle_lang = IVA_LANGUAGES.get(subtitle_lang_code) or Locale.Language.Unknown
+            include = False
+
+            # Include extras in section language...
+            if spoken_lang == lang:
+              
+              # ...if they have section language subs AND this was explicitly requested in prefs.
+              if Prefs['native_subs'] and subtitle_lang == lang:
+                include = True
+
+              # ...if there are no subs.
+              if subtitle_lang_code == -1:
+                include = True
+
+            # Include foreign language extras if they have subs in the section language.
+            if spoken_lang != lang and subtitle_lang == lang:
+              include = True
+
+            # Always include English language extras anyway (often section lang options are not available), but only if they have no subs.
+            if spoken_lang == Locale.Language.English and subtitle_lang_code == -1:
+              include = True
+
+            # Exclude non-primary trailers and scenes.
+            extra_type = 'primary_trailer' if extra.get('primary') == 'true' else extra.get('type')
+            if extra_type == 'trailer' or extra_type == 'scene_or_sample':
+              include = False
+
+            if include:
+
+              bitrates = extra.get('bitrates') or ''
+              duration = int(extra.get('duration') or 0)
+
+              # Remember the title if this is the primary trailer.
+              if extra_type == 'primary_trailer':
+                media_title = extra.get('title')
+
+              # Add the extra.
+              if extra_type in TYPE_MAP:
+                extras.append({ 'type' : extra_type,
+                                'lang' : spoken_lang,
+                                'extra' : TYPE_MAP[extra_type](url=IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, bitrates, duration),
+                                                               title=extra.get('title'),
+                                                               year=avail.year,
+                                                               originally_available_at=avail,
+                                                               thumb=extra.get('thumb') or '')})
+              else:
+                  Log('Skipping extra %s because type %s was not recognized.' % (extra.get('iva_id'), extra_type))
+
+          # Sort the extras, making sure the primary trailer is first.
+          extras.sort(key=lambda e: TYPE_ORDER.index(e['type']))
+
+          # If red band trailers were requested in prefs, see if we have one and swap it in.
+          if Prefs['redband']:
+            redbands = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and re.match(r'.+red.?band.+', t.get('title'), re.IGNORECASE) and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
+            if len(redbands) > 0:
+              extra = redbands[0]
+              extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
+              extras[0]['extra'].thumb = extra.get('thumb') or ''
+              Log('Adding red band trailer: ' + extra.get('iva_id'))
+
+          # If our primary trailer is in English but the library language is something else, see if we can do better.
+          if lang != Locale.Language.English and extras[0]['lang'] == Locale.Language.English:
+            lang_matches = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and IVA_LANGUAGES.get(int(t.get('subtitle_lang_code') or -1)) == lang]
+            lang_matches += [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
+            if len(lang_matches) > 0:
+              extra = lang_matches[0]
+              spoken_lang = IVA_LANGUAGES.get(int(extra.get('lang_code') or -1)) or Locale.Language.Unknown
+              extras[0]['lang'] = spoken_lang
+              extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
+              extras[0]['extra'].thumb = extra.get('thumb') or ''
+              Log('Adding trailer with spoken language %s and subtitled langauge %s to match library language.' % (spoken_lang, IVA_LANGUAGES.get(int(extra.get('subtitle_lang_code') or -1)) or Locale.Language.Unknown))
+
+          # Clean up the found extras.
+          extras = [scrub_extra(extra, media_title) for extra in extras]
+
+          # Add them in the right order to the metadata.extras list.
+          for extra in extras:
+            metadata.extras.add(extra['extra'])
+
+          Log('Added %d of %d extras.' % (len(metadata.extras), len(xml.xpath('//extra'))))
+
+        except HTTPError, e:
+          if e.code == 403:
+            Log('Skipping online extra lookup (an active Plex Pass is required).')
+
     except:
-      print "Error obtaining Plex movie data for", guid
+      Log('Error obtaining Plex movie data for ' + guid)
+      raise
 
     m = re.search('(tt[0-9]+)', metadata.guid)
     if m and not metadata.year:
@@ -742,3 +896,26 @@ def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map):
     Log("Error getting best name.")
 
   return ret
+
+
+def scrub_extra(extra, media_title):
+
+  e = extra['extra']
+
+  # Remove the "Movie Title: " from non-trailer extra titles.
+  if media_title is not None:
+    r = re.compile(media_title + ': ', re.IGNORECASE)
+    e.title = r.sub('', e.title)
+
+  # Remove the "Movie Title Scene: " from SceneOrSample extra titles.
+  if media_title is not None:
+    r = re.compile(media_title + ' Scene: ', re.IGNORECASE)
+    e.title = r.sub('', e.title)
+
+  # Capitalise UK correctly.
+  e.title = e.title.replace('Uk', 'UK')
+
+  return extra
+
+def imdb_id_from_tmdb(tmdb_id):
+  return Core.messaging.call_external_function('com.plexapp.agents.themoviedb', 'MessageKit:GetImdbId', kwargs = dict(tmdb_id=tmdb_id)).replace('tt','')

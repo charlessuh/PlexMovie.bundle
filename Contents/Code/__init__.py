@@ -5,10 +5,9 @@ from urllib2 import HTTPError
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
 #
 GOOGLE_JSON_URL = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&userip=%s&rsz=large&q=%s'
-FREEBASE_URL    = 'http://meta.plex.tv'
-FREEBASE_BASE   = 'movies'
-PLEXMOVIE_URL   = 'http://meta.plex.tv'
-PLEXMOVIE_BASE  = 'movie'
+FREEBASE_URL = 'http://meta.plex.tv/m/%s?lang=%s&ratings=1&reviews=1'
+PLEXMOVIE_URL = 'http://meta.plex.tv'
+PLEXMOVIE_BASE = 'movie'
 
 MPDB_ROOT = 'http://movieposterdb.plexapp.com'
 MPDB_JSON = MPDB_ROOT + '/1/request.json?imdb_id=%s&api_key=p13x2&secret=%s&width=720&thumb_width=100'
@@ -235,7 +234,7 @@ class PlexMovieAgent(Agent.Movies):
       
       # Add a result for the id found in the passed in guid hint.
       findByIdCalled = True
-      (title, year) = self.findById(theGuid)
+      (title, year) = self.findById(theGuid, lang)
       if title is not None:
         bestHitScore = 100 # Treat a guid-match as a perfect score
         results.Append(MetadataSearchResult(id=theGuid, name=title, year=year, lang=lang, score=bestHitScore))
@@ -516,10 +515,10 @@ class PlexMovieAgent(Agent.Movies):
     else:
       guid = re.findall('tt([0-9]+)', metadata.guid)[0]
 
-    url = '%s/%s/%s/%s.xml' % (FREEBASE_URL, FREEBASE_BASE, guid[-2:], guid)
+    url = FREEBASE_URL % (guid, lang)
 
     try:
-      movie = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK, headers={'Accept-Encoding':'gzip'})
+      movie = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK)
 
       # Title.
       if not setTitle:
@@ -534,7 +533,7 @@ class PlexMovieAgent(Agent.Movies):
 
       # Genres.
       metadata.genres.clear()
-      for genre in [g.get('genre') for g in movie.xpath('genre') if g.get('lang') == lang]:
+      for genre in [g.get('genre') for g in movie.xpath('genre')]:
         metadata.genres.add(genre)
 
       # Directors.
@@ -553,7 +552,6 @@ class PlexMovieAgent(Agent.Movies):
         role = metadata.roles.new()
         if movie_role.get('role'):
           role.role = movie_role.get('role')
-        #role.photo = headshot_url
         role.actor = movie_role.get('name')
           
       # Studio
@@ -706,26 +704,67 @@ class PlexMovieAgent(Agent.Movies):
           if e.code == 403:
             Log('Skipping online extra lookup (an active Plex Pass is required).')
 
-    except:
-      Log('Error obtaining Plex movie data for ' + guid)
-      raise
+      # Rotten Tomatoes Ratings and Reviews.
+     
+      # Do a quick check to make sure we've got the attributes available in this 
+      # framework version, and that the server is new enough to read them.
+      #
+      find_ratings = True
+
+      if not hasattr(metadata, 'audience_rating'):
+        find_ratings = False
+        Log('Not adding Rotten Tomatoes ratings: Framework v2.5.1+ required.')
+
+      if not Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,16):
+        find_ratings = False
+        Log('Not adding Rotten Tomateos ratings: Server v0.9.9.16+ required.')
+
+      # Ratings.
+      if find_ratings and movie.xpath('rating') is not None:
+
+        rating_image_identifiers = {'Certified Fresh' : 'rottentomatoes://image.rating.certified', 'Ripe' : 'rottentomatoes://image.rating.ripe', 'Rotten' : 'rottentomatoes://image.rating.rotten', None : ''}
+        audience_rating_image_identifiers = {'Upright' : 'rottentomatoes://image.rating.upright', 'Spilled' : 'rottentomatoes://image.rating.spilled', None : ''}
+
+        ratings = movie.xpath('//ratings')
+        if ratings:
+
+          ratings = ratings[0]
+          metadata.rating = float(ratings.get('critics_score') or 0) / 10
+          metadata.rating_image = rating_image_identifiers[ratings.get('critics_rating')]
+
+          metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
+          metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
+
+      # Reviews.
+      metadata.reviews.clear()
+      if find_ratings:
+        for review in movie.xpath('//review'):
+          r = metadata.reviews.new()
+          r.author = review.get('critic')
+          r.source = review.get('publication')
+          r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
+          r.link = review.get('link')
+          r.text = review.text
+
+    except Exception, e:
+      Log('Error obtaining Plex movie data for %s: %s' % (guid, str(e)))
 
     m = re.search('(tt[0-9]+)', metadata.guid)
     if m and not metadata.year:
       id = m.groups(1)[0]
       # We already tried Freebase above, so go directly to Google
-      (title, year) = self.findById(id, skipFreebase=True)
+      (title, year) = self.findById(id, lang, skipFreebase=True)
       if year:
         metadata.year = int(year)
 
 
-  def findById(self, id, skipFreebase=False):
+  def findById(self, id, lang, skipFreebase=False):
     title = None
     year = None
 
     if not skipFreebase:
       # Try Freebase first, since spamming Google will easily get us blocked
-      url = '%s/%s/%s/%s.xml' % (FREEBASE_URL, FREEBASE_BASE, id[-2:], id[2:])
+      url = FREEBASE_URL % (id[2:], lang)
 
       try:
         movie = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK, headers={'Accept-Encoding':'gzip'})
@@ -867,7 +906,7 @@ def safe_unicode(s,encoding='utf-8'):
     return str(s).decode(encoding)
   
 def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map):
-  url = '%s/%s/%s/%s.xml' % (FREEBASE_URL, FREEBASE_BASE, guid[-2:], guid)
+  url = FREEBASE_URL % (guid, lang)
   ret = (fallback, fallback_year)
   
   try:
@@ -896,8 +935,7 @@ def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map):
     Log("Error getting best name.")
 
   return ret
-
-
+  
 def scrub_extra(extra, media_title):
 
   e = extra['extra']

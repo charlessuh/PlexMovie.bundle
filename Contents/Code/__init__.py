@@ -26,7 +26,7 @@ SEARCH_RESULT_PERCENTAGE_THRESHOLD = 80 # Minimum 'percentage' value considered 
 # Extras.
 PLEXMOVIE_EXTRAS_URL = 'http://127.0.0.1:32400/services/iva/metadata/%s?lang=%s&extras=1'
 IVA_ASSET_URL = 'iva://api.internetvideoarchive.com/2.0/DataService/VideoAssets(%s)?lang=%s&bitrates=%s&duration=%s'
-TYPE_ORDER = ['primary_trailer', 'trailer', 'behind_the_scenes', 'scene_or_sample']
+TYPE_ORDER = ['primary_trailer', 'trailer', 'behind_the_scenes', 'interview', 'scene_or_sample']
 IVA_LANGUAGES = {-1   : Locale.Language.Unknown,
                   0   : Locale.Language.English,
                   12  : Locale.Language.Swedish, 

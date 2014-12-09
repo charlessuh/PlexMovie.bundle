@@ -21,7 +21,7 @@ def MediaObjectsForURL(url):
 
   media = []
   for (bitrate, width, height) in bitrates:
-    part = PartObject(key='/services/iva/assets/%s/video.mp4?bitrate=%d' % (iva_id, bitrate), container=Container.MP4, optimized_for_streaming=True)
+    part = PartObject(key='/services/iva/assets/%s/video.mp4?bitrate=%d' % (iva_id, bitrate), container=Container.MP4, optimized_for_streaming=True, duration=duration*1000)
     part.streams.append(VideoStreamObject(codec=VideoCodec.H264, bitrate=bitrate*1000, width=width, height=height))
     part.streams.append(AudioStreamObject(codec=AudioCodec.AAC, channels=2, language_code=lang))
     media.append(MediaObject(parts=[part], container=Container.MP4, video_codec=VideoCodec.H264, audio_codec=AudioCodec.AAC, duration=duration*1000, bitrate=bitrate*1000, width=width, height=height))

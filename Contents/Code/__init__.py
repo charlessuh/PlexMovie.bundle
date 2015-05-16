@@ -1,5 +1,6 @@
 import re, time, unicodedata, hashlib, urlparse, types
 from urllib2 import HTTPError
+from chapterdb import PlexChapterDBAgent
 
 # [might want to look into language/country stuff at some point] 
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
@@ -749,6 +750,13 @@ class PlexMovieAgent(Agent.Movies):
           r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
           r.link = review.get('link')
           r.text = review.text
+
+      try:
+        # chapters
+        chapterAgent = PlexChapterDBAgent()
+        chapterAgent.update(metadata, media, lang)
+      except Exception, e:
+        Log('Error obtaining Plex movie Chapter data for %s: %s' % (guid, str(e)))
 
     except Exception, e:
       Log('Error obtaining Plex movie data for %s: %s' % (guid, str(e)))

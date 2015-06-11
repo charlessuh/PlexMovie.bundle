@@ -520,6 +520,10 @@ class PlexMovieAgent(Agent.Movies):
     try:
       movie = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK)
 
+      if len(movie.xpath('//title')) == 0:
+        Log('No Freebase detials found for %s, aborting.' % guid)
+        return
+
       # Title.
       if not setTitle:
         d = {}
@@ -911,8 +915,15 @@ def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map):
   
   try:
     movie = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK, headers={'Accept-Encoding':'gzip'})
-    
     movieEl = movie.xpath('//movie')[0]
+
+    # Sometimes we have a good hash or title/year lookup result, but no detailed Freebase XML.
+    # Detect this and bail gracefully: trying to improve the title makes things worse.
+    #
+    if len(movieEl.xpath('//title')) == 0:
+      Log('No details found in Freebase XML, using fallback title and year.')
+      return fallback, fallback_year
+
     if movieEl.get('originally_available_at'):
       fallback_year = int(movieEl.get('originally_available_at').split('-')[0])
 

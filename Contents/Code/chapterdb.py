@@ -27,7 +27,6 @@ CHAPTER_BEYOND_PART_COUNT = 2   #Number of chapters beyond end of part to affect
 class PlexChapterDBAgent():
 
   def convertTime(self, timeString):
-    Log.Debug('Converting time %s', timeString)
     if (timeString == None):
       return 0
     
@@ -38,7 +37,6 @@ class PlexChapterDBAgent():
         time = int(groups[0]) * 60 + int(groups[1])
       else:
         time = int(groups[0]) * 60 * 60 + int(groups[1]) * 60 + int(groups[2])
-      Log.Debug('time is %d', time)
       return time * 1000
     return None
   
@@ -71,9 +69,6 @@ class PlexChapterDBAgent():
         score += confirmScore
       
       # Defer duration until we start matching parts
-            
-      Log.Debug('Found %s, %s, %s', title, confirm, duration)
-      
       cleanChapters = []
       for chapter in chapters.xpath('cg:chapter', namespaces={'cg': 'http://jvance.com/2008/ChapterGrabber'}):
         timeString  = chapter.get('time')
@@ -82,7 +77,6 @@ class PlexChapterDBAgent():
         time = self.convertTime(timeString)
         
         cleanChapter = {'time': time, 'name': name}
-        Log.Debug('Adding chapter %s, %d', name, time)
         cleanChapters.append(cleanChapter)
         
       
@@ -116,17 +110,13 @@ class PlexChapterDBAgent():
       setDuration = chapterSet['duration']
       if setDuration != None:
         durationDelta = abs(duration - setDuration)
-        Log.Debug('Duration Delta is %f', durationDelta)
         if (durationDelta * 100 / setDuration) < 10:
-          Log.Debug('Duration is semi close')
           setScore += SCORE_DURATION_SEMI_CLOSE
         
         if durationDelta < DURATION_CLOSE_VAR * 1000:
-          Log.Debug('Duration close')
           setScore += SCORE_DURATION_CLOSE
       
         if durationDelta < DURATION_MATCH_VAR * 1000:
-          Log.Debug('Duration match')
           setScore += SCORE_DURATION_MATCH
       
       countBeyondDuration = 0
@@ -135,7 +125,6 @@ class PlexChapterDBAgent():
           countBeyondDuration += 1
       
       if countBeyondDuration >= CHAPTER_BEYOND_PART_COUNT:
-        Log.Debug('Set has %d chapters beyond duration', countBeyondDuration)
         setScore += SCORE_CHAPTER_BEYOND_PART
       
       if setScore > bestScore:
@@ -150,11 +139,8 @@ class PlexChapterDBAgent():
   
   def update(self, metadata, media, lang):
     searchTitle = media.title
-    Log.Debug('Hit Update on %s', searchTitle)
-    Log.Debug('Chapters is %s,', metadata.chapters)
     
     url = '%s/%s/%s%s' % (CHAPTERDB_URL, CHAPTERDB_BASE, CHAPTERDB_SEARCH, urllib.quote(searchTitle))
-    Log.Debug('URL to hit is %s', url)
     searchResult = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK, headers={'Accept-Encoding':'gzip', 'apikey': API_KEY})
     
     chapterSets = self.cleanChapters(searchResult, searchTitle)
@@ -180,18 +166,18 @@ class PlexChapterDBAgent():
       
       if len(item.parts) != 1:
         #try match whole item as a single part
-        Log.Debug('Attempting match item as single part')
         itemMatch = self.matchDuration(totalDuration, chapterSets)
         if itemMatch['score'] > match['score']:
-          Log.Debug('Item has better match')
           match['score'] = itemMatch['score']
           match['parts'] = [itemMatch]
         
       if bestMatch == None or match['score'] > bestMatch['score']:
         bestMatch = match
+
+    # Clear out old chapters.
+    metadata.chapters.clear()
     
     if bestMatch != None and bestMatch['score'] > 0:
-      metadata.chapters.clear()
       
       offset = 0
       for partMatch in bestMatch['parts']:
@@ -209,9 +195,8 @@ class PlexChapterDBAgent():
         offset += partMatch['duration']
         self.finalizeChapter(lastChapter, offset)
       
-      #end of parts and end of match.  We are done
+    Log.Debug('Added %d chapters.' % len(metadata.chapters))
   
   def finalizeChapter(self, chapter, endTime):
     if chapter != None:
       chapter.end_time_offset = endTime
-      Log.Debug('Added chapter %s %d %d', chapter.title, chapter.start_time_offset, chapter.end_time_offset)

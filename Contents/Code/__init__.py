@@ -714,42 +714,45 @@ class PlexMovieAgent(Agent.Movies):
       # Do a quick check to make sure we've got the attributes available in this 
       # framework version, and that the server is new enough to read them.
       #
-      find_ratings = True
+      try:
+        find_ratings = True
 
-      if not hasattr(metadata, 'audience_rating'):
-        find_ratings = False
-        Log('Not adding Rotten Tomatoes ratings: Framework v2.5.1+ required.')
+        if not hasattr(metadata, 'audience_rating'):
+          find_ratings = False
+          Log('Not adding Rotten Tomatoes ratings: Framework v2.5.1+ required.')
 
-      if not Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,16):
-        find_ratings = False
-        Log('Not adding Rotten Tomateos ratings: Server v0.9.9.16+ required.')
+        if not Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,16):
+          find_ratings = False
+          Log('Not adding Rotten Tomateos ratings: Server v0.9.9.16+ required.')
 
-      # Ratings.
-      if find_ratings and movie.xpath('rating') is not None:
+        # Ratings.
+        if find_ratings and movie.xpath('rating') is not None:
 
-        rating_image_identifiers = {'Certified Fresh' : 'rottentomatoes://image.rating.certified', 'Fresh' : 'rottentomatoes://image.rating.ripe', 'Ripe' : 'rottentomatoes://image.rating.ripe', 'Rotten' : 'rottentomatoes://image.rating.rotten', None : ''}
-        audience_rating_image_identifiers = {'Upright' : 'rottentomatoes://image.rating.upright', 'Spilled' : 'rottentomatoes://image.rating.spilled', None : ''}
+          rating_image_identifiers = {'Certified Fresh' : 'rottentomatoes://image.rating.certified', 'Fresh' : 'rottentomatoes://image.rating.ripe', 'Ripe' : 'rottentomatoes://image.rating.ripe', 'Rotten' : 'rottentomatoes://image.rating.rotten', None : ''}
+          audience_rating_image_identifiers = {'Upright' : 'rottentomatoes://image.rating.upright', 'Spilled' : 'rottentomatoes://image.rating.spilled', None : ''}
 
-        ratings = movie.xpath('//ratings')
-        if ratings:
+          ratings = movie.xpath('//ratings')
+          if ratings:
 
-          ratings = ratings[0]
-          metadata.rating = float(ratings.get('critics_score') or 0) / 10
-          metadata.rating_image = rating_image_identifiers[ratings.get('critics_rating')]
+            ratings = ratings[0]
+            metadata.rating = float(ratings.get('critics_score') or 0) / 10
+            metadata.rating_image = rating_image_identifiers[ratings.get('critics_rating')]
 
-          metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
-          metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
+            metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
+            metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
 
-      # Reviews.
-      metadata.reviews.clear()
-      if find_ratings:
-        for review in movie.xpath('//review'):
-          r = metadata.reviews.new()
-          r.author = review.get('critic')
-          r.source = review.get('publication')
-          r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
-          r.link = review.get('link')
-          r.text = review.text
+        # Reviews.
+        metadata.reviews.clear()
+        if find_ratings:
+          for review in movie.xpath('//review'):
+            r = metadata.reviews.new()
+            r.author = review.get('critic')
+            r.source = review.get('publication')
+            r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
+            r.link = review.get('link')
+            r.text = review.text
+      except Exception, e:
+        Log('Error obtaining Rotten tomato data for %s: %s' % (guid, str(e)))
 
       try:
         # chapters

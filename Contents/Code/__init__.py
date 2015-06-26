@@ -499,7 +499,7 @@ class PlexMovieAgent(Agent.Movies):
           pass
           
       
-  def update(self, metadata, media, lang):
+  def update(self, metadata, media, lang, periodic=False, force=False):
 
     # Set the title. Only do this once, otherwise we'll pull new names 
     # that get edited out of the database.

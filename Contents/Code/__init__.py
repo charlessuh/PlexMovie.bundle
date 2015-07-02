@@ -107,7 +107,7 @@ class PlexMovieAgent(Agent.Movies):
     return self.guidize("%s" % string)
   
   def getPublicIP(self):
-    ip = HTTP.Request('http://plexapp.com/ip.php', cacheTime=CACHE_1DAY).content.strip()
+    ip = HTTP.Request('https://plex.tv/pms/:/ip', cacheTime=CACHE_1DAY).content.strip()
     return ip
   
   def getGoogleResults(self, url):

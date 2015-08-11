@@ -2,6 +2,10 @@ RE_IVA_ID = Regex('.*\((.+)\).*')
 RE_LANG = Regex('lang=([a-z]{2})')
 RE_BITRATES = Regex('bitrates=([\d,]+)')
 RE_DURATION = Regex('duration=([\d]+)')
+RE_ADAPTIVE = Regex('adaptive=([\d]+)')
+RE_DTS = Regex('dts=([\d]+)')
+
+ADAPTIVE_FORMATS = {11: 'mp4', 12: 'mp4', 13: 'f4m', 14: 'mpd'}
 
 ####################################################################################################
 def MediaObjectsForURL(url):
@@ -19,12 +23,35 @@ def MediaObjectsForURL(url):
     bitrates_avail = []
   bitrates = find_bitrates(bitrates_avail)
 
+  try: adaptive = int(RE_ADAPTIVE.search(url).group(1))
+  except: adaptive = 0
+
+  try: dts = int(RE_DTS.search(url).group(1))
+  except: dts = 0
+
   media = []
   for (bitrate, width, height) in bitrates:
     part = PartObject(key='/services/iva/assets/%s/video.mp4?bitrate=%d' % (iva_id, bitrate), container=Container.MP4, optimized_for_streaming=True, duration=duration*1000)
     part.streams.append(VideoStreamObject(codec=VideoCodec.H264, bitrate=bitrate*1000, width=width, height=height))
     part.streams.append(AudioStreamObject(codec=AudioCodec.AAC, channels=2, language_code=lang))
     media.append(MediaObject(parts=[part], container=Container.MP4, video_codec=VideoCodec.H264, audio_codec=AudioCodec.AAC, duration=duration*1000, bitrate=bitrate*1000, width=width, height=height))
+
+  if adaptive:
+    for fmt, ext in ADAPTIVE_FORMATS.iteritems():
+      bitrate = 600 + fmt
+      part = PartObject(key='/services/iva/assets/%s/video.mp4?bitrate=%d&fmt=%s' % (iva_id, bitrate, fmt), container=Container.MP4, optimized_for_streaming=True, duration=duration*1000)
+      part.streams.append(VideoStreamObject(codec=VideoCodec.H264, bitrate=bitrate*1000, width=width, height=height))
+      part.streams.append(AudioStreamObject(codec=AudioCodec.AAC, channels=2, language_code=lang))
+      media.append(MediaObject(parts=[part], container=Container.MP4, video_codec=VideoCodec.H264, audio_codec=AudioCodec.AAC, duration=duration*1000, bitrate=bitrate*1000, width=width, height=height))
+
+    if dts:
+      for fmt, ext in ADAPTIVE_FORMATS.iteritems():
+        fmt = fmt + 4
+        bitrate = 600 + fmt
+        part = PartObject(key='/services/iva/assets/%s/video.mp4?bitrate=%d&fmt=%s' % (iva_id, bitrate, fmt), container=Container.MP4, optimized_for_streaming=True, duration=duration*1000)
+        part.streams.append(VideoStreamObject(codec=VideoCodec.H264, bitrate=bitrate*1000, width=width, height=height))
+        part.streams.append(AudioStreamObject(codec=AudioCodec.AAC, channels=2, language_code=lang))
+        media.append(MediaObject(parts=[part], container=Container.MP4, video_codec=VideoCodec.H264, audio_codec=AudioCodec.AAC, duration=duration*1000, bitrate=bitrate*1000, width=width, height=height))
 
   return media
 

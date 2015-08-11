@@ -1,8 +1,9 @@
-import re, time, unicodedata, hashlib, urlparse, types
+import re, time, unicodedata, hashlib, urllib, urlparse, types
 from urllib2 import HTTPError
 from chapterdb import PlexChapterDBAgent
+import countrycode
 
-# [might want to look into language/country stuff at some point] 
+# [might want to look into language/country stuff at some point]
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
 #
 GOOGLE_JSON_URL = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&userip=%s&rsz=large&q=%s'
@@ -14,19 +15,21 @@ MPDB_ROOT = 'http://movieposterdb.plexapp.com'
 MPDB_JSON = MPDB_ROOT + '/1/request.json?imdb_id=%s&api_key=p13x2&secret=%s&width=720&thumb_width=100'
 MPDB_SECRET = 'e3c77873abc4866d9e28277a9114c60c'
 
+PLEX_METRICS_URL = 'https://metrics.plex.tv/collect/event'
+
 # PlexMovie tunables.
 INITIAL_SCORE = 100 # Starting value for score before deductions are taken.
-PERCENTAGE_PENALTY_MAX = 20 # Maximum amount to penalize matches with low percentages.
-COUNT_PENALTY_THRESHOLD = 500 # Items with less than this value are penalized on a scale of 0 to COUNT_PENALTY_MAX.
-COUNT_PENALTY_MAX = 10 # Maximum amount to penalize matches with low counts.
-FUTURE_RELEASE_DATE_PENALTY = 10 # How much to penalize movies whose release dates are in the future.
-YEAR_PENALTY_MAX = 10 # Maximum amount to penalize for mismatched years.
+PERCENTAGE_PENALTY_MAX = 20.0 # Maximum amount to penalize matches with low percentages.
+COUNT_PENALTY_THRESHOLD = 500.0 # Items with less than this value are penalized on a scale of 0 to COUNT_PENALTY_MAX.
+COUNT_PENALTY_MAX = 10.0 # Maximum amount to penalize matches with low counts.
+FUTURE_RELEASE_DATE_PENALTY = 10.0 # How much to penalize movies whose release dates are in the future.
+YEAR_PENALTY_MAX = 10.0 # Maximum amount to penalize for mismatched years.
 GOOD_SCORE = 98 # Score required to short-circuit matching and stop searching.
 SEARCH_RESULT_PERCENTAGE_THRESHOLD = 80 # Minimum 'percentage' value considered credible for PlexMovie results. 
 
 # Extras.
 PLEXMOVIE_EXTRAS_URL = 'http://127.0.0.1:32400/services/iva/metadata/%s?lang=%s&extras=1'
-IVA_ASSET_URL = 'iva://api.internetvideoarchive.com/2.0/DataService/VideoAssets(%s)?lang=%s&bitrates=%s&duration=%s'
+IVA_ASSET_URL = 'iva://api.internetvideoarchive.com/2.0/DataService/VideoAssets(%s)?lang=%s&bitrates=%s&duration=%s&adaptive=%d&dts=%d'
 TYPE_ORDER = ['primary_trailer', 'trailer', 'behind_the_scenes', 'interview', 'scene_or_sample']
 IVA_LANGUAGES = {-1   : Locale.Language.Unknown,
                   0   : Locale.Language.English,
@@ -63,6 +66,21 @@ IVA_LANGUAGES = {-1   : Locale.Language.Unknown,
                   493 : Locale.Language.Ukrainian,
                   50  : Locale.Language.Vietnamese}
 
+
+# TMDb Cut & Pasted constants
+BASE_URL = 'https://api.tmdb.org/3' # TODO Possibly put this behind cloudflare?
+API_KEY = 'a3dc111e66105f6387e99393813ae4d5'
+TMDB_CONFIG = '%s/configuration?api_key=%s' % (BASE_URL, API_KEY)
+
+# Movies
+TMDB_MOVIE_SEARCH = '%s/search/movie?api_key=%s&query=%%s&year=%%s&language=%%s&include_adult=%%s' % (BASE_URL, API_KEY)
+TMDB_MOVIE = '%s/movie/%%s?api_key=%s&append_to_response=releases,credits&language=%%s' % (BASE_URL, API_KEY)
+TMDB_MOVIE_IMAGES = '%s/movie/%%s/images?api_key=%s' % (BASE_URL, API_KEY)
+
+ARTWORK_ITEM_LIMIT = 15
+POSTER_SCORE_RATIO = .3 # How much weight to give ratings vs. vote counts when picking best posters. 0 means use only ratings.
+BACKDROP_SCORE_RATIO = .3
+RE_IMDB_ID = Regex('^tt\d{7}$')
 
 def Start():
   HTTP.CacheTime = CACHE_1WEEK
@@ -125,6 +143,14 @@ class PlexMovieAgent(Agent.Movies):
     
     return []
 
+  def send_metric(self, action, options):
+
+    if not Prefs['usage']:
+      Log.Debug("Server has opted out of usage data collection, not making metrics ping")
+      return
+
+    options['identifier'] = 'com.plexapp.agents.imdb'
+    metric_req = HTTP.Request(PLEX_METRICS_URL, data='%s' % dict(category='agent_event', action=action, options=options), method='GET')
 
   def getPlexMovieResults(self, media, matches, search_type='hash', plex_hash=''):
     if search_type is 'hash' and plex_hash is not None:
@@ -138,12 +164,12 @@ class PlexMovieAgent(Agent.Movies):
       res = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK, headers={'Accept-Encoding':'gzip'})
       
       for match in res.xpath('//match'):
-        id    = "tt%s" % match.get('guid')
-        name  = safe_unicode(match.get('title'))
-        year  = safe_unicode(match.get('year'))
+        id = "tt%s" % match.get('guid')
+        name = safe_unicode(match.get('title'))
+        year = safe_unicode(match.get('year'))
         count = int(match.get('count'))
-        pct   = int(match.get('percentage', 0))
-        dist  = Util.LevenshteinDistance(media.name, name.encode('utf-8'))
+        pct = int(match.get('percentage', 0))
+        dist = Util.LevenshteinDistance(media.name, name.encode('utf-8'))
         
         # Intialize.
         if not matches.has_key(id):
@@ -163,7 +189,6 @@ class PlexMovieAgent(Agent.Movies):
     except Exception, e:
       Log("freebase/proxy %s lookup failed: %s" % (search_type, str(e)))
 
-
   def scoreResults(self, media, matches):
 
     Log('Scoring ' + str(matches))
@@ -178,10 +203,10 @@ class PlexMovieAgent(Agent.Movies):
       total_cnt = match[4]
       
       # Compute score penalty for percentage/count.
-      score_penalty = (100-total_pct) * (PERCENTAGE_PENALTY_MAX/100)
+      score_penalty = (100 - total_pct) * (PERCENTAGE_PENALTY_MAX / 100)
       if total_cnt < COUNT_PENALTY_THRESHOLD:
-        score_penalty += (COUNT_PENALTY_THRESHOLD-total_cnt)/COUNT_PENALTY_THRESHOLD * COUNT_PENALTY_MAX
-      
+        score_penalty += (COUNT_PENALTY_THRESHOLD - total_cnt) / COUNT_PENALTY_THRESHOLD * COUNT_PENALTY_MAX
+
       # Year penalty/bonus.
       try:
         if int(year) > Datetime.Now().year:
@@ -189,7 +214,7 @@ class PlexMovieAgent(Agent.Movies):
 
         if media.year and year:
           per_year_penalty = int(YEAR_PENALTY_MAX / 3)
-          year_delta = abs(int(media.year)-(int(year)))
+          year_delta = abs(int(media.year) - (int(year)))
           if year_delta > 3:
             score_penalty += YEAR_PENALTY_MAX
           else:
@@ -198,11 +223,108 @@ class PlexMovieAgent(Agent.Movies):
         Log('Exception applying year penalty/bonus')
 
       # Store the final score in the result vector.
-      matches[key][5] = INITIAL_SCORE - dist - score_penalty
+      matches[key][5] = int(INITIAL_SCORE - dist - score_penalty)
 
+  def perform_tmdb_movie_search(self, results, media, lang, manual, get_imdb_id=False):
+
+    # If this a manual search (Fix Incorrect Match) and we get an IMDb id as input.
+    if manual and RE_IMDB_ID.search(media.name):
+      tmdb_dict = GetJSON(url=TMDB_MOVIE % (media.name, lang))
+
+      if isinstance(tmdb_dict, dict) and 'id' in tmdb_dict:
+
+        if get_imdb_id:
+          id = media.name
+        else:
+          id = tmdb_dict['id']
+
+        result = MetadataSearchResult(id=id,
+                                      name=tmdb_dict['title'],
+                                      year=int(tmdb_dict['release_date'].split('-')[0]),
+                                      score=100,
+                                      lang=lang)
+        Log(result)
+        results.Append(result)
+        return False
+
+    # If this is an automatic search
+    else:
+      if media.year and int(media.year) > 1900:
+        year = media.year
+      else:
+        year = ''
+
+      include_adult = 'false'
+      if Prefs['adult']:
+        include_adult = 'true'
+
+      # Historically we've StrippedDiacritics() here, but this is a pretty aggressive function that won't pass
+      # anything that can't be encoded to ASCII, and as such has a tendency to nuke whole titles in, e.g., Asian
+      # languages (See GHI #26).  If we have a string that was modified by StripDiacritics() and we get no results,
+      # try the search again with the original.
+      #
+      stripped_name = String.StripDiacritics(media.name)
+      tmdb_dict = GetJSON(url=TMDB_MOVIE_SEARCH % (String.Quote(stripped_name), year, lang, include_adult))
+      if media.name != stripped_name and (tmdb_dict == None or len(tmdb_dict['results']) == 0):
+        Log('No results for title modified by strip diacritics, searching again with the original: ' + media.name)
+        tmdb_dict = GetJSON(url=TMDB_MOVIE_SEARCH % (String.Quote(media.name), year, lang, include_adult))
+
+      if isinstance(tmdb_dict, dict) and 'results' in tmdb_dict:
+
+        for i, movie in enumerate(sorted(tmdb_dict['results'], key=lambda k: k['popularity'], reverse=True)):
+          score = 90
+          score = score - abs(String.LevenshteinDistance(movie['title'].lower(), media.name.lower()))
+
+          # Adjust score slightly for 'popularity' (helpful for similar or identical titles when no media.year is present)
+          score = score - (5 * i)
+
+          if 'release_date' in movie and movie['release_date']:
+            release_year = int(movie['release_date'].split('-')[0])
+          else:
+            release_year = -1
+
+          if media.year and int(media.year) > 1900 and release_year:
+            year_diff = abs(int(media.year) - release_year)
+
+            if year_diff <= 1:
+              score = score + 10
+            else:
+              score = score - (5 * year_diff)
+
+          if score <= 0:
+            continue
+          else:
+
+            if get_imdb_id and 'imdb_id' in movie and RE_IMDB_ID.search(movie['imdb_id']):
+              id = str(movie['imdb_id'])
+            elif get_imdb_id:
+              id = imdb_id_from_tmdb(str(movie['id']))
+            else:
+              id = movie['id']
+
+            if get_imdb_id and not id.startswith('tt'):
+              id = 'tt%s' % id
+
+            result = MetadataSearchResult(id=id,
+                                          name=movie['title'],
+                                          year=release_year,
+                                          score=score,
+                                          lang=lang)
+            Log(result)
+            results.Append(result)
+
+            if score >= GOOD_SCORE:
+              Log('Found perfect match with TMDb query.')
+              options = dict(search_provider='tmdb', id=id, lang=lang, name=String.Quote(stripped_name), year=year, score=score, force=manual)
+              self.send_metric('search_match', options)
+
+              if not manual:
+                return False
+
+    return True
 
   def search(self, results, media, lang, manual=False):
-    
+
     # Keep track of best name.
     lockedNameMap = {}
     idMap = {}
@@ -217,7 +339,7 @@ class PlexMovieAgent(Agent.Movies):
    
     # TODO: create a plex controlled cache for lookup
     # TODO: by imdbid  -> (title,year)
-    
+
     # See if we're being passed a raw ID.
     findByIdCalled = False
     if media.guid or re.match('t*[0-9]{7}', media.name):
@@ -268,25 +390,32 @@ class PlexMovieAgent(Agent.Movies):
       
       Log('---- HASH RESULTS MAP ----')
       Log(str(hash_matches))
-      
+
+      options = None
+
       # Add scored hash results to search results.
       for key in hash_matches.keys():
         match = hash_matches[key]
         if int(match[3]) >= SEARCH_RESULT_PERCENTAGE_THRESHOLD or manual:
           best_name, year = get_best_name_and_year(key[2:], lang, match[1], match[2], lockedNameMap)
-          Log("Adding hash match: %s (%s) score=%d" % (best_name, year, match[5]))
-          results.Append(MetadataSearchResult(id = key, name  = best_name, year = year, lang  = lang, score = match[5]))
-          if bestHitScore < match[5]:
-            bestHitScore = match[5]
+          if best_name is not None and year is not None:
+            Log("Adding hash match: %s (%s) score=%d, key=%s" % (best_name, year, match[5], key))
+            results.Append(MetadataSearchResult(id = key, name  = best_name, year = year, lang  = lang, score = match[5]))
+            if bestHitScore < match[5]:
+              bestHitScore = match[5]
+              options = dict(search_provider='hash_match', id=key, lang=lang, name=best_name, score=bestHitScore, force=manual)
         else:
           Log("Skipping hash match (doesn\'t meet percentage threshold): %s (%s) percentage=%d" % (match[1], match[2], match[3]))
 
       if bestHitScore >= GOOD_SCORE:
         Log('Found perfect match with plex hash query.')
+        self.send_metric('search_match', options)
         continueSearch = False
 
     # Grab title/year matches.
     if manual or continueSearch:
+      bestHitScore = 0
+      options = None
       self.getPlexMovieResults(media, title_year_matches, search_type='title/year')
       self.scoreResults(media, title_year_matches)
 
@@ -297,17 +426,26 @@ class PlexMovieAgent(Agent.Movies):
       for key in title_year_matches.keys():
         match = title_year_matches[key]
         if int(match[3]) >= SEARCH_RESULT_PERCENTAGE_THRESHOLD or manual:
-          best_name, year = get_best_name_and_year(key[2:], lang, match[1], match[2], lockedNameMap)
-          Log("Adding title_year match: %s (%s) score=%d" % (best_name, year, match[5]))
-          results.Append(MetadataSearchResult(id = key, name  = best_name, year = year, lang  = lang, score = match[5]))
-          if bestHitScore < match[5]:
-            bestHitScore = match[5]
+          best_name, year = get_best_name_and_year(key[2:], lang, match[1], match[2], lockedNameMap, True)
+          if best_name is not None and year is not None:
+            Log("Adding title_year match: %s (%s) score=%d, key=%s" % (best_name, year, match[5], key))
+            results.Append(MetadataSearchResult(id = key, name  = best_name, year = year, lang  = lang, score = match[5]))
+            if bestHitScore < match[5]:
+              bestHitScore = match[5]
+              options = dict(search_provider='title_match', id=key, lang=lang, name=media.name, year=media.year, score=bestHitScore, force=manual)
         else:
           Log("Skipping title/year match (doesn\'t meet percentage threshold): %s (%s) percentage=%d" % (match[1], match[2], match[3]))
 
       if bestHitScore >= GOOD_SCORE:
         Log('Found perfect match with title/year query.')
+        self.send_metric('search_match', options)
         continueSearch = False
+
+    # Search TMDb
+    if manual or continueSearch:
+
+      Log('---- TMDb RESULTS MAP ----')
+      continueSearch = self.perform_tmdb_movie_search(results, media, lang, manual, True)
 
     # Google fallback search starts here.
     if manual or continueSearch:
@@ -341,6 +479,7 @@ class PlexMovieAgent(Agent.Movies):
             
           # Now walk through the results and gather information from title/url
           considerations = []
+          top_consideration = True
           for r in jsonObj:
             
             # Get data.
@@ -451,17 +590,22 @@ class PlexMovieAgent(Agent.Movies):
             except:
               Log('Exception processing IMDB Result')
               pass
-            
+
             for c in considerations:
               if notMovies.has_key(c['imdbId']):
                 Log("IMDBID %s was marked at one point as not a movie. skipping" % c['imdbId'])
                 continue
 
-              results.Append(MetadataSearchResult(id = c['imdbId'], name  = c['title'], year = c['year'], lang  = lang, score = c['score']))
-           
+              results.Append(MetadataSearchResult(id=c['imdbId'], name=c['title'], year=c['year'], lang=lang, score=c['score']))
+
+              if top_consideration:
+                top_consideration = False
+                options = dict(search_provider='google', id=c['imdbId'], force=manual, name=c['title'], year=c['year'], lang=lang, score=c['score'])
+                self.send_metric('search_match', options)
+
             # Each search entry is worth less, but we subtract even if we don't use the entry...might need some thought.
-            score = score - 4 
-    
+            score = score - 4
+
     ## end giant google block
       
     results.Sort('score', descending=True)
@@ -497,17 +641,8 @@ class PlexMovieAgent(Agent.Movies):
             result.thumb = thumb_url
         except:
           pass
-          
-      
-  def update(self, metadata, media, lang, periodic=False, force=False):
 
-    # Set the title. Only do this once, otherwise we'll pull new names 
-    # that get edited out of the database.
-    #
-    setTitle = False
-    if media and metadata.title is None:
-      setTitle = True
-      metadata.title = media.title
+  def update(self, metadata, media, lang):
 
     # If this looks like a TMDB GUID, get the IMDB ID.
     tmdb_search = re.search(r'^(com.plexapp.agents.themoviedb://)([\d]+)\?.+', metadata.guid)
@@ -515,6 +650,17 @@ class PlexMovieAgent(Agent.Movies):
       guid = imdb_id_from_tmdb(tmdb_search.group(2))
     else:
       guid = re.findall('tt([0-9]+)', metadata.guid)[0]
+
+    # Get all of TMDb's metadata first!
+    get_tmdb_metadata(guid, lang, metadata)
+
+    # Set the title. Only do this once, otherwise we'll pull new names
+    # that get edited out of the database.
+    #
+    setTitle = False
+    if media and metadata.title is None:
+      setTitle = True
+      metadata.title = media.title
 
     url = FREEBASE_URL % (guid, lang)
 
@@ -525,6 +671,11 @@ class PlexMovieAgent(Agent.Movies):
         Log('No Freebase detials found for %s, aborting.' % guid)
         raise RuntimeWarning('No details found.')
 
+      if Prefs['summary'] != 'The Movie Database' or metadata.summary in [None, '']:
+        for summary in movie.xpath('summary'):
+          if lang.strip() == summary.get('lang').strip():
+            metadata.summary = summary.get('summary')
+
       # Title.
       if not setTitle:
         d = {}
@@ -532,63 +683,107 @@ class PlexMovieAgent(Agent.Movies):
         if name is not None:
           metadata.title = name
 
-      # Runtime.
-      if int(movie.get('runtime') or 0) > 0:
-        metadata.duration = int(movie.get('runtime')) * 60 * 1000
+      # Directors.
+      metadata.directors.clear()
+      for director in movie.xpath('director'):
+        metadata.directors.add(director.get('name'))
 
       # Genres.
       metadata.genres.clear()
       for genre in [g.get('genre') for g in movie.xpath('genre')]:
         metadata.genres.add(genre)
 
-      # Directors.
-      metadata.directors.clear()
-      for director in movie.xpath('director'):
-        metadata.directors.add(director.get('name'))
-        
-      # Writers.
-      metadata.writers.clear()
-      for writer in movie.xpath('writer'):
-        metadata.writers.add(writer.get('name'))
-        
       # Actors.
-      metadata.roles.clear()
-      for movie_role in movie.xpath('actor'):
-        role = metadata.roles.new()
-        if movie_role.get('role'):
-          role.role = movie_role.get('role')
-        role.actor = movie_role.get('name')
-          
-      # Studio
-      if movie.get('company'):
-        metadata.studio = movie.get('company')
-        
-      # Tagline.
-      if len(movie.get('tagline')) > 0:
-        metadata.tagline = movie.get('tagline')
-        
-      # Content rating.
-      if movie.get('content_rating'):
-        metadata.content_rating = movie.get('content_rating')
-     
-      # Release date.
-      if len(movie.get('originally_available_at')) > 0:
-        elements = movie.get('originally_available_at').split('-')
-        if len(elements) >= 1 and len(elements[0]) == 4:
-          metadata.year = int(elements[0])
+      if Prefs['cast_list'] != 'The Movie Database' or len(metadata.roles) < 1:
+        metadata.roles.clear()
+        for movie_role in movie.xpath('actor'):
+          role = metadata.roles.new()
+          if movie_role.get('role'):
+            role.role = movie_role.get('role')
+          role.actor = movie_role.get('name')
 
-        if len(elements) == 3:
-          metadata.originally_available_at = Datetime.ParseDate(movie.get('originally_available_at')).date()
-          
-      # Country.
-      try:
-        metadata.countries.clear()
-        if movie.get('country'):
-          country = movie.get('country')
-          country = country.replace('United States of America', 'USA')
-          metadata.countries.add(country)
-      except:
-        pass
+      # IMDb Poster - this is fairly low-res so only append it to TMDb's artwork, no prefs
+      for poster in movie.xpath('poster'):
+        poster_url = poster.get('url')
+        metadata.posters[poster_url] = Proxy.Preview(HTTP.Request(poster_url).content)
+
+      # Get all country based metadata (fallback to US)
+      if Prefs['country'] != '' and Prefs['country'] in countrycode.COUNTRY_TO_CODE:
+        country_code = countrycode.COUNTRY_TO_CODE[Prefs['country']]
+
+        US_code = 'US'
+        us_content_rating = ''
+        us_year = ''
+        us_oaa = ''
+        us_runtime = ''
+
+        for content_rating in movie.xpath('content_rating'):
+
+          curr_country = content_rating.get('country')
+          curr_rating = content_rating.get('content_rating')
+
+          if curr_country == country_code:
+            metadata.content_rating = curr_rating
+            break
+          elif curr_country == US_code:
+            us_content_rating = curr_rating
+
+        if metadata.content_rating in [None, False, ''] and us_content_rating not in [None, False, '']:
+          metadata.content_rating = us_content_rating
+
+        for release_date in movie.xpath('originally_available_at'):
+
+          curr_country = release_date.get('country')
+          curr_oaa =release_date.get('originally_available_at')
+
+          if curr_country == country_code:
+            elements = curr_oaa.split('-')
+            if len(elements) >= 1 and len(elements[0]) == 4:
+              metadata.year = int(elements[0])
+
+            if len(elements) == 3:
+              metadata.originally_available_at = Datetime.ParseDate(curr_oaa).date()
+
+          elif curr_country == US_code:
+            elements = curr_oaa.split('-')
+            if len(elements) >= 1 and len(elements[0]) == 4:
+              us_year = int(elements[0])
+
+            if len(elements) == 3:
+              us_oaa = Datetime.ParseDate(curr_oaa).date()
+
+        invalid_metadata_year = metadata.year in [None, False, ''] or metadata.year < 1900
+
+        if metadata.originally_available_at in [None, False, ''] and us_oaa not in [None, False, ''] and invalid_metadata_year:
+          metadata.originally_available_at = us_oaa
+
+        if invalid_metadata_year and us_year not in [None, False, ''] and us_year > 1900:
+          metadata.year = us_year
+
+        for run_time in movie.xpath('runtime'):
+
+          curr_country = run_time.get('country')
+          curr_duration = run_time.get('runtime')
+
+          if curr_country == country_code:
+            if int(curr_duration or 0) > 0:
+              metadata.duration = int(curr_duration)
+              break
+
+          elif curr_country == US_code:
+            if int(curr_duration or 0) > 0:
+              us_runtime = int(curr_duration)
+
+        if (metadata.duration in [None, False, ''] or metadata.duration < 1) and us_runtime in [None, False, ''] and us_runtime > 1:
+          metadata.duration = us_runtime
+
+      if Prefs['ratings'].strip() != 'The Movie Database':
+        for imdb_rating in movie.xpath('imdb_ratings'):
+          try:
+            metadata.rating = (int(imdb_rating.get('audience_score')) or 0) / 10.0
+            metadata.audience_rating = 0.0
+          except TypeError:
+            pass
     except Exception, e:
       Log('Error obtaining Plex movie data for %s: %s' % (guid, str(e)))
 
@@ -657,6 +852,8 @@ class PlexMovieAgent(Agent.Movies):
 
             bitrates = extra.get('bitrates') or ''
             duration = int(extra.get('duration') or 0)
+            adaptive = 1 if extra.get('adaptive') == 'true' else 0
+            dts = 1 if extra.get('dts') == 'true' else 0
 
             # Remember the title if this is the primary trailer.
             if extra_type == 'primary_trailer':
@@ -666,7 +863,7 @@ class PlexMovieAgent(Agent.Movies):
             if extra_type in TYPE_MAP:
               extras.append({ 'type' : extra_type,
                               'lang' : spoken_lang,
-                              'extra' : TYPE_MAP[extra_type](url=IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, bitrates, duration),
+                              'extra' : TYPE_MAP[extra_type](url=IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, bitrates, duration, adaptive, dts),
                                                              title=extra.get('title'),
                                                              year=avail.year,
                                                              originally_available_at=avail,
@@ -682,7 +879,9 @@ class PlexMovieAgent(Agent.Movies):
           redbands = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and re.match(r'.+red.?band.+', t.get('title'), re.IGNORECASE) and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
           if len(redbands) > 0:
             extra = redbands[0]
-            extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
+            adaptive = 1 if extra.get('adaptive') == 'true' else 0
+            dts = 1 if extra.get('dts') == 'true' else 0
+            extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), lang, extra.get('bitrates') or '', int(extra.get('duration') or 0), adaptive, dts)
             extras[0]['extra'].thumb = extra.get('thumb') or ''
             Log('Adding red band trailer: ' + extra.get('iva_id'))
 
@@ -693,8 +892,10 @@ class PlexMovieAgent(Agent.Movies):
           if len(lang_matches) > 0:
             extra = lang_matches[0]
             spoken_lang = IVA_LANGUAGES.get(int(extra.get('lang_code') or -1)) or Locale.Language.Unknown
+            adaptive = 1 if extra.get('adaptive') == 'true' else 0
+            dts = 1 if extra.get('dts') == 'true' else 0
             extras[0]['lang'] = spoken_lang
-            extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
+            extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, extra.get('bitrates') or '', int(extra.get('duration') or 0), adaptive, dts)
             extras[0]['extra'].thumb = extra.get('thumb') or ''
             Log('Adding trailer with spoken language %s and subtitled langauge %s to match library language.' % (spoken_lang, IVA_LANGUAGES.get(int(extra.get('subtitle_lang_code') or -1)) or Locale.Language.Unknown))
 
@@ -728,7 +929,7 @@ class PlexMovieAgent(Agent.Movies):
         Log('Not adding Rotten Tomateos ratings: Server v0.9.9.16+ required.')
 
       # Ratings.
-      if find_ratings and movie.xpath('rating') is not None:
+      if (Prefs['ratings'].strip() == 'Rotten Tomatoes' or metadata.rating is None) and find_ratings and movie.xpath('rating') is not None:
 
         rating_image_identifiers = {'Certified Fresh' : 'rottentomatoes://image.rating.certified', 'Fresh' : 'rottentomatoes://image.rating.ripe', 'Ripe' : 'rottentomatoes://image.rating.ripe', 'Rotten' : 'rottentomatoes://image.rating.rotten', None : ''}
         audience_rating_image_identifiers = {'Upright' : 'rottentomatoes://image.rating.upright', 'Spilled' : 'rottentomatoes://image.rating.spilled', None : ''}
@@ -770,7 +971,6 @@ class PlexMovieAgent(Agent.Movies):
       (title, year) = self.findById(id, lang, skipFreebase=True)
       if year:
         metadata.year = int(year)
-
 
   def findById(self, id, lang, skipFreebase=False):
     title = None
@@ -919,10 +1119,13 @@ def safe_unicode(s,encoding='utf-8'):
   else:
     return str(s).decode(encoding)
   
-def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map):
+def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map, no_force=False):
   url = FREEBASE_URL % (guid, lang)
   ret = (fallback, fallback_year)
-  
+
+  if no_force:
+    url += '&force=-1'
+
   try:
     movie = XML.ElementFromURL(url, cacheTime=CACHE_1WEEK, headers={'Accept-Encoding':'gzip'})
     movieEl = movie.xpath('//movie')[0]
@@ -932,7 +1135,7 @@ def get_best_name_and_year(guid, lang, fallback, fallback_year, best_name_map):
     #
     if len(movieEl.xpath('//title')) == 0:
       Log('No details found in Freebase XML, using fallback title and year.')
-      return fallback, fallback_year
+      return None, None
 
     if movieEl.get('originally_available_at'):
       fallback_year = int(movieEl.get('originally_available_at').split('-')[0])
@@ -977,4 +1180,294 @@ def scrub_extra(extra, media_title):
   return extra
 
 def imdb_id_from_tmdb(tmdb_id):
-  return Core.messaging.call_external_function('com.plexapp.agents.themoviedb', 'MessageKit:GetImdbId', kwargs = dict(tmdb_id=tmdb_id)).replace('tt','')
+  imdb_id = Core.messaging.call_external_function('com.plexapp.agents.themoviedb', 'MessageKit:GetImdbId', kwargs=dict(tmdb_id=tmdb_id))
+  if imdb_id is not None:
+    imdb_id = imdb_id.replace('tt','')
+  else:
+    imdb_id = ''
+
+  return imdb_id
+
+def get_tmdb_metadata(id, lang, metadata):
+  metadata_dict = PerformTMDbMovieUpdate('tt%s' % id, lang)
+  return tmdb_dict_to_movie_metadata_obj(metadata_dict, metadata)
+
+def tmdb_dict_to_movie_metadata_obj(metadata_dict, metadata):
+
+  try:
+    if not metadata or not metadata.attrs:
+      return
+  except AttributeError:
+    Log('WARNING: Framework not new enough to use One True Agent')  # TODO: add a more official log message about version number when available
+    return
+
+  for attr_name, attr_obj in metadata.attrs.iteritems():
+
+    if attr_name not in metadata_dict:
+      continue
+
+    dict_value = metadata_dict[attr_name]
+
+    if isinstance(dict_value, list):
+
+      attr_obj.clear()
+      for val in dict_value:
+        attr_obj.add(val)
+
+    elif isinstance(dict_value, dict):
+
+      if attr_name in ['posters', 'art', 'themes']:  # Can't access MapObject, so have to write these out
+
+        for k, v in dict_value.iteritems():
+          if isinstance(v, tuple):
+            attr_obj[k] = Proxy.Preview(HTTP.Request(v[0]).content, sort_order=v[1])
+          else:
+            attr_obj[k] = Proxy.Preview(HTTP.Request(v[0]).content)
+
+        attr_obj.validate_keys(dict_value.keys())
+
+      else:
+        for k, v in dict_value.iteritems():
+          attr_obj[k] = v
+
+    elif attr_name is 'originally_available_at':
+
+        attr_obj.setcontent(Datetime.FromTimestamp(dict_value))
+
+    else:
+      attr_obj.setcontent(dict_value)
+
+  # Roles is a special kind of object
+  if 'roles' in metadata_dict:
+    metadata.roles.clear()
+
+    for role in metadata_dict['roles']:
+      meta_role = metadata.roles.new()
+      if 'role' in role:
+        meta_role.role = role['role']
+
+      if 'actor' in role:
+        meta_role.actor = role['actor']
+
+      if 'profile_path' in role:
+        meta_role.photo = role['photo']
+
+####################################################################################################
+def PerformTMDbMovieUpdate(metadata_id, lang):  # Shared with TheMovieDB.bundle
+
+  metadata = dict(id=metadata_id)
+
+  config_dict = GetJSON(url=TMDB_CONFIG, cache_time=CACHE_1WEEK * 2)
+  tmdb_dict = GetJSON(url=TMDB_MOVIE % (metadata_id, lang))
+
+  if not isinstance(tmdb_dict, dict) or 'overview' not in tmdb_dict or tmdb_dict['overview'] is None or tmdb_dict['overview'] == "":
+    # Retry the query with no language specified if we didn't get anything from the initial request.
+    tmdb_dict = GetJSON(url=TMDB_MOVIE % (metadata_id, ''))
+
+  # This additional request is necessary since full art/poster lists are not returned if they don't exactly match the language
+  tmdb_images_dict = GetJSON(url=TMDB_MOVIE_IMAGES % metadata_id)
+
+  if not isinstance(tmdb_dict, dict) or not isinstance(tmdb_images_dict, dict):
+    return None
+
+  # Rating.
+  votes = tmdb_dict['vote_count']
+  rating = tmdb_dict['vote_average']
+  if votes > 3:
+    metadata['rating'] = rating
+    metadata['audience_ratinge'] = 0.0
+
+  # Title of the film.
+  metadata['title'] = tmdb_dict['title']
+
+  if 'original_title' in tmdb_dict and tmdb_dict['original_title'] != tmdb_dict['title']:
+    metadata['original_title'] = tmdb_dict['original_title']
+
+  # Tagline.
+  metadata['tagline'] = tmdb_dict['tagline']
+
+  # Release date.
+  try:
+    originally_available_at_date_obj = Datetime.ParseDate(tmdb_dict['release_date']).date()
+    metadata['originally_available_at'] = Datetime.TimestampFromDatetime(originally_available_at_date_obj)
+    metadata['year'] = originally_available_at_date_obj.year
+  except:
+    pass
+
+  if Prefs['country'] != '':
+    c = Prefs['country']
+
+    for country in tmdb_dict['releases']['countries']:
+      if country['iso_3166_1'] == countrycode.COUNTRY_TO_CODE[c]:
+
+        # Content rating.
+        if 'certification' in country and country['certification'] != '':
+          if countrycode.COUNTRY_TO_CODE[c] == 'US':
+            metadata['content_rating'] = country['certification']
+          else:
+            metadata['content_rating'] = '%s/%s' % (countrycode.COUNTRY_TO_CODE[c].lower(), country['certification'])
+
+        # Release date (country specific).
+        if 'release_date' in country and country['release_date'] != '':
+          originally_available_at_date_obj = Datetime.ParseDate(country['release_date']).date()
+          metadata['originally_available_at'] = Datetime.TimestampFromDatetime(originally_available_at_date_obj)
+          metadata['year'] = originally_available_at_date_obj.year
+
+        break
+
+  # Summary.
+  metadata['summary'] = tmdb_dict['overview']
+  if metadata['summary'] == 'No overview found.':
+    metadata['summary'] = ""
+
+  # Runtime.
+  try: metadata['duration'] = int(tmdb_dict['runtime']) * 60 * 1000
+  except: pass
+
+  # Genres.
+  metadata['genres'] = []
+  for genre in tmdb_dict['genres']:
+    metadata['genres'].append(genre['name'].strip())
+
+  # Collections.
+  metadata['collections'] = []
+  if Prefs['collections'] and tmdb_dict['belongs_to_collection'] is not None:
+    metadata['collections'].append(tmdb_dict['belongs_to_collection']['name'].replace(' Collection',''))
+
+  # Studio.
+  if 'production_companies' in tmdb_dict and len(tmdb_dict['production_companies']) > 0:
+    index = tmdb_dict['production_companies'][0]['id']
+    company = None
+
+    for studio in tmdb_dict['production_companies']:
+      if studio['id'] <= index:
+        index = studio['id']
+        company = studio['name'].strip()
+
+    metadata['studio'] = company
+
+  else:
+    metadata['studio'] = None
+
+  # Country.
+  metadata['countries'] = []
+  if 'production_countries' in tmdb_dict:
+    for country in tmdb_dict['production_countries']:
+      country = country['name'].replace('United States of America', 'USA')
+      metadata['countries'].append(country)
+
+  # Crew.
+  metadata['directors'] = []
+  metadata['writers'] = []
+  metadata['producers'] = []
+
+  for member in tmdb_dict['credits']['crew']:
+    if member['job'] == 'Director':
+      metadata['directors'].append(member['name'])
+    elif member['job'] in ('Writer', 'Screenplay', 'Author'):
+      metadata['writers'].append(member['name'])
+    elif member['job'] == 'Producer':
+      metadata['producers'].append(member['name'])
+
+  # Cast.
+  metadata['roles'] = []
+
+  for member in sorted(tmdb_dict['credits']['cast'], key=lambda k: k['order']):
+    role = dict()
+    role['role'] = member['character']
+    role['actor'] = member['name']
+    if member['profile_path'] is not None:
+      role['photo'] = config_dict['images']['base_url'] + 'original' + member['profile_path']
+    metadata['roles'].append(role)
+
+  # Note: for TMDB artwork, number of votes is a good predictor of poster quality. Ratings are assigned
+  # using a Baysean average that appears to be poorly calibrated, so ratings are almost always between
+  # 5 and 6 or zero.  Consider both of these, weighting them according to the POSTER_SCORE_RATIO.
+
+  # No votes get zero, use TMDB's apparent initial Baysean prior mean of 5 instead.
+  valid_names = list()
+
+  metadata['posters'] = {}
+
+  if tmdb_images_dict['posters']:
+    max_average = max([(lambda p: p['vote_average'] or 5)(p) for p in tmdb_images_dict['posters']])
+    max_count = max([(lambda p: p['vote_count'])(p) for p in tmdb_images_dict['posters']]) or 1
+
+    for i, poster in enumerate(tmdb_images_dict['posters']):
+
+      score = (poster['vote_average'] / max_average) * POSTER_SCORE_RATIO
+      score += (poster['vote_count'] / max_count) * (1 - POSTER_SCORE_RATIO)
+      tmdb_images_dict['posters'][i]['score'] = score
+
+      # Boost the score for localized posters (according to the preference).
+      if Prefs['localart']:
+        if poster['iso_639_1'] == lang:
+          tmdb_images_dict['posters'][i]['score'] = poster['score'] + 1
+
+      # Discount score for foreign posters.
+      if poster['iso_639_1'] != lang and poster['iso_639_1'] is not None and poster['iso_639_1'] != 'en':
+        tmdb_images_dict['posters'][i]['score'] = poster['score'] - 1
+
+    for i, poster in enumerate(sorted(tmdb_images_dict['posters'], key=lambda k: k['score'], reverse=True)):
+      if i > ARTWORK_ITEM_LIMIT:
+        break
+      else:
+        poster_url = config_dict['images']['base_url'] + 'original' + poster['file_path']
+        thumb_url = config_dict['images']['base_url'] + 'w154' + poster['file_path']
+        valid_names.append(poster_url)
+
+        if poster_url not in metadata['posters']:
+          try: metadata['posters'][poster_url] = (thumb_url, i+1)
+          except: pass
+
+  # Backdrops.
+  valid_names = list()
+  metadata['art'] = {}
+  if tmdb_images_dict['backdrops']:
+    max_average = max([(lambda p: p['vote_average'] or 5)(p) for p in tmdb_images_dict['backdrops']])
+    max_count = max([(lambda p: p['vote_count'])(p) for p in tmdb_images_dict['backdrops']]) or 1
+
+    for i, backdrop in enumerate(tmdb_images_dict['backdrops']):
+
+      score = (backdrop['vote_average'] / max_average) * BACKDROP_SCORE_RATIO
+      score += (backdrop['vote_count'] / max_count) * (1 - BACKDROP_SCORE_RATIO)
+      tmdb_images_dict['backdrops'][i]['score'] = score
+
+      # For backdrops, we prefer "No Language" since they're intended to sit behind text.
+      if backdrop['iso_639_1'] == 'xx' or backdrop['iso_639_1'] == 'none':
+        tmdb_images_dict['backdrops'][i]['score'] = float(backdrop['score']) + 2
+
+      # Boost the score for localized art (according to the preference).
+      if Prefs['localart']:
+        if backdrop['iso_639_1'] == lang:
+          tmdb_images_dict['backdrops'][i]['score'] = float(backdrop['score']) + 1
+
+      # Discount score for foreign art.
+      if backdrop['iso_639_1'] != lang and backdrop['iso_639_1'] is not None and backdrop['iso_639_1'] != 'en':
+        tmdb_images_dict['backdrops'][i]['score'] = float(backdrop['score']) - 1
+
+    for i, backdrop in enumerate(sorted(tmdb_images_dict['backdrops'], key=lambda k: k['score'], reverse=True)):
+      if i > ARTWORK_ITEM_LIMIT:
+        break
+      else:
+        backdrop_url = config_dict['images']['base_url'] + 'original' + backdrop['file_path']
+        thumb_url = config_dict['images']['base_url'] + 'w300' + backdrop['file_path']
+        valid_names.append(backdrop_url)
+
+        if backdrop_url not in metadata['art']:
+          try: metadata['art'][backdrop_url] = (thumb_url, i+1)
+          except: pass
+
+  return metadata
+
+####################################################################################################
+def GetJSON(url, cache_time=CACHE_1MONTH):
+
+  tmdb_dict = None
+
+  try:
+    tmdb_dict = JSON.ObjectFromURL(url, sleep=2.0, headers={'Accept': 'application/json'}, cacheTime=cache_time)
+  except:
+    Log('Error fetching JSON from The Movie Database.')
+
+  return tmdb_dict

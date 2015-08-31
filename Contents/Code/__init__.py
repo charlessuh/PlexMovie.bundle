@@ -589,180 +589,179 @@ class PlexMovieAgent(Agent.Movies):
           metadata.countries.add(country)
       except:
         pass
-      
-      # Extras.
-      try: 
-        # Do a quick check to make sure we've got the types available in this framework version, and that the server
-        # is new enough to support the IVA endpoints.
-        t = InterviewObject()
-        if Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,13):
-          find_extras = True
-        else:
-          find_extras = False
-          Log('Not adding extras: Server v0.9.9.13+ required')
-      except NameError, e:
-        Log('Not adding extras: Framework v2.5.0+ required')
-        find_extras = False
-
-      if find_extras and Prefs['extras']:
-
-        TYPE_MAP = {'primary_trailer' : TrailerObject,
-                    'trailer' : TrailerObject,
-                    'interview' : InterviewObject,
-                    'behind_the_scenes' : BehindTheScenesObject,
-                    'scene_or_sample' : SceneOrSampleObject}
-
-        try:
-          req = PLEXMOVIE_EXTRAS_URL % (metadata.id[2:], lang)
-          xml = XML.ElementFromURL(req)
-
-          extras = []
-          media_title = None
-          for extra in xml.xpath('//extra'):
-            avail = Datetime.ParseDate(extra.get('originally_available_at'))
-            lang_code = int(extra.get('lang_code')) if extra.get('lang_code') else -1
-            subtitle_lang_code = int(extra.get('subtitle_lang_code')) if extra.get('subtitle_lang_code') else -1
-
-            spoken_lang = IVA_LANGUAGES.get(lang_code) or Locale.Language.Unknown
-            subtitle_lang = IVA_LANGUAGES.get(subtitle_lang_code) or Locale.Language.Unknown
-            include = False
-
-            # Include extras in section language...
-            if spoken_lang == lang:
-              
-              # ...if they have section language subs AND this was explicitly requested in prefs.
-              if Prefs['native_subs'] and subtitle_lang == lang:
-                include = True
-
-              # ...if there are no subs.
-              if subtitle_lang_code == -1:
-                include = True
-
-            # Include foreign language extras if they have subs in the section language.
-            if spoken_lang != lang and subtitle_lang == lang:
-              include = True
-
-            # Always include English language extras anyway (often section lang options are not available), but only if they have no subs.
-            if spoken_lang == Locale.Language.English and subtitle_lang_code == -1:
-              include = True
-
-            # Exclude non-primary trailers and scenes.
-            extra_type = 'primary_trailer' if extra.get('primary') == 'true' else extra.get('type')
-            if extra_type == 'trailer' or extra_type == 'scene_or_sample':
-              include = False
-
-            if include:
-
-              bitrates = extra.get('bitrates') or ''
-              duration = int(extra.get('duration') or 0)
-
-              # Remember the title if this is the primary trailer.
-              if extra_type == 'primary_trailer':
-                media_title = extra.get('title')
-
-              # Add the extra.
-              if extra_type in TYPE_MAP:
-                extras.append({ 'type' : extra_type,
-                                'lang' : spoken_lang,
-                                'extra' : TYPE_MAP[extra_type](url=IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, bitrates, duration),
-                                                               title=extra.get('title'),
-                                                               year=avail.year,
-                                                               originally_available_at=avail,
-                                                               thumb=extra.get('thumb') or '')})
-              else:
-                  Log('Skipping extra %s because type %s was not recognized.' % (extra.get('iva_id'), extra_type))
-
-          # Sort the extras, making sure the primary trailer is first.
-          extras.sort(key=lambda e: TYPE_ORDER.index(e['type']))
-
-          # If red band trailers were requested in prefs, see if we have one and swap it in.
-          if Prefs['redband']:
-            redbands = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and re.match(r'.+red.?band.+', t.get('title'), re.IGNORECASE) and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
-            if len(redbands) > 0:
-              extra = redbands[0]
-              extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
-              extras[0]['extra'].thumb = extra.get('thumb') or ''
-              Log('Adding red band trailer: ' + extra.get('iva_id'))
-
-          # If our primary trailer is in English but the library language is something else, see if we can do better.
-          if lang != Locale.Language.English and extras[0]['lang'] == Locale.Language.English:
-            lang_matches = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and IVA_LANGUAGES.get(int(t.get('subtitle_lang_code') or -1)) == lang]
-            lang_matches += [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
-            if len(lang_matches) > 0:
-              extra = lang_matches[0]
-              spoken_lang = IVA_LANGUAGES.get(int(extra.get('lang_code') or -1)) or Locale.Language.Unknown
-              extras[0]['lang'] = spoken_lang
-              extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
-              extras[0]['extra'].thumb = extra.get('thumb') or ''
-              Log('Adding trailer with spoken language %s and subtitled langauge %s to match library language.' % (spoken_lang, IVA_LANGUAGES.get(int(extra.get('subtitle_lang_code') or -1)) or Locale.Language.Unknown))
-
-          # Clean up the found extras.
-          extras = [scrub_extra(extra, media_title) for extra in extras]
-
-          # Add them in the right order to the metadata.extras list.
-          for extra in extras:
-            metadata.extras.add(extra['extra'])
-
-          Log('Added %d of %d extras.' % (len(metadata.extras), len(xml.xpath('//extra'))))
-
-        except HTTPError, e:
-          if e.code == 403:
-            Log('Skipping online extra lookup (an active Plex Pass is required).')
-
-      # Rotten Tomatoes Ratings and Reviews.
-     
-      # Do a quick check to make sure we've got the attributes available in this 
-      # framework version, and that the server is new enough to read them.
-      #
-      try:
-        find_ratings = True
-
-        if not hasattr(metadata, 'audience_rating'):
-          find_ratings = False
-          Log('Not adding Rotten Tomatoes ratings: Framework v2.5.1+ required.')
-
-        if not Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,16):
-          find_ratings = False
-          Log('Not adding Rotten Tomateos ratings: Server v0.9.9.16+ required.')
-
-        # Ratings.
-        if find_ratings and movie.xpath('rating') is not None:
-
-          rating_image_identifiers = {'Certified Fresh' : 'rottentomatoes://image.rating.certified', 'Fresh' : 'rottentomatoes://image.rating.ripe', 'Ripe' : 'rottentomatoes://image.rating.ripe', 'Rotten' : 'rottentomatoes://image.rating.rotten', None : ''}
-          audience_rating_image_identifiers = {'Upright' : 'rottentomatoes://image.rating.upright', 'Spilled' : 'rottentomatoes://image.rating.spilled', None : ''}
-
-          ratings = movie.xpath('//ratings')
-          if ratings:
-
-            ratings = ratings[0]
-            metadata.rating = float(ratings.get('critics_score') or 0) / 10
-            metadata.rating_image = rating_image_identifiers[ratings.get('critics_rating')]
-
-            metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
-            metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
-
-        # Reviews.
-        metadata.reviews.clear()
-        if find_ratings:
-          for review in movie.xpath('//review'):
-            r = metadata.reviews.new()
-            r.author = review.get('critic')
-            r.source = review.get('publication')
-            r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
-            r.link = review.get('link')
-            r.text = review.text
-      except Exception, e:
-        Log('Error obtaining Rotten tomato data for %s: %s' % (guid, str(e)))
-
-      try:
-        # chapters
-        chapterAgent = PlexChapterDBAgent()
-        chapterAgent.update(metadata, media, lang)
-      except Exception, e:
-        Log('Error obtaining Plex movie Chapter data for %s: %s' % (guid, str(e)))
-
     except Exception, e:
       Log('Error obtaining Plex movie data for %s: %s' % (guid, str(e)))
+
+    # Extras.
+    try:
+      # Do a quick check to make sure we've got the types available in this framework version, and that the server
+      # is new enough to support the IVA endpoints.
+      t = InterviewObject()
+      if Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,13):
+        find_extras = True
+      else:
+        find_extras = False
+        Log('Not adding extras: Server v0.9.9.13+ required')
+    except NameError, e:
+      Log('Not adding extras: Framework v2.5.0+ required')
+      find_extras = False
+
+    if find_extras and Prefs['extras']:
+
+      TYPE_MAP = {'primary_trailer' : TrailerObject,
+                  'trailer' : TrailerObject,
+                  'interview' : InterviewObject,
+                  'behind_the_scenes' : BehindTheScenesObject,
+                  'scene_or_sample' : SceneOrSampleObject}
+
+      try:
+        req = PLEXMOVIE_EXTRAS_URL % (metadata.id[2:], lang)
+        xml = XML.ElementFromURL(req)
+
+        extras = []
+        media_title = None
+        for extra in xml.xpath('//extra'):
+          avail = Datetime.ParseDate(extra.get('originally_available_at'))
+          lang_code = int(extra.get('lang_code')) if extra.get('lang_code') else -1
+          subtitle_lang_code = int(extra.get('subtitle_lang_code')) if extra.get('subtitle_lang_code') else -1
+
+          spoken_lang = IVA_LANGUAGES.get(lang_code) or Locale.Language.Unknown
+          subtitle_lang = IVA_LANGUAGES.get(subtitle_lang_code) or Locale.Language.Unknown
+          include = False
+
+          # Include extras in section language...
+          if spoken_lang == lang:
+
+            # ...if they have section language subs AND this was explicitly requested in prefs.
+            if Prefs['native_subs'] and subtitle_lang == lang:
+              include = True
+
+            # ...if there are no subs.
+            if subtitle_lang_code == -1:
+              include = True
+
+          # Include foreign language extras if they have subs in the section language.
+          if spoken_lang != lang and subtitle_lang == lang:
+            include = True
+
+          # Always include English language extras anyway (often section lang options are not available), but only if they have no subs.
+          if spoken_lang == Locale.Language.English and subtitle_lang_code == -1:
+            include = True
+
+          # Exclude non-primary trailers and scenes.
+          extra_type = 'primary_trailer' if extra.get('primary') == 'true' else extra.get('type')
+          if extra_type == 'trailer' or extra_type == 'scene_or_sample':
+            include = False
+
+          if include:
+
+            bitrates = extra.get('bitrates') or ''
+            duration = int(extra.get('duration') or 0)
+
+            # Remember the title if this is the primary trailer.
+            if extra_type == 'primary_trailer':
+              media_title = extra.get('title')
+
+            # Add the extra.
+            if extra_type in TYPE_MAP:
+              extras.append({ 'type' : extra_type,
+                              'lang' : spoken_lang,
+                              'extra' : TYPE_MAP[extra_type](url=IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, bitrates, duration),
+                                                             title=extra.get('title'),
+                                                             year=avail.year,
+                                                             originally_available_at=avail,
+                                                             thumb=extra.get('thumb') or '')})
+            else:
+                Log('Skipping extra %s because type %s was not recognized.' % (extra.get('iva_id'), extra_type))
+
+        # Sort the extras, making sure the primary trailer is first.
+        extras.sort(key=lambda e: TYPE_ORDER.index(e['type']))
+
+        # If red band trailers were requested in prefs, see if we have one and swap it in.
+        if Prefs['redband']:
+          redbands = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and re.match(r'.+red.?band.+', t.get('title'), re.IGNORECASE) and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
+          if len(redbands) > 0:
+            extra = redbands[0]
+            extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
+            extras[0]['extra'].thumb = extra.get('thumb') or ''
+            Log('Adding red band trailer: ' + extra.get('iva_id'))
+
+        # If our primary trailer is in English but the library language is something else, see if we can do better.
+        if lang != Locale.Language.English and extras[0]['lang'] == Locale.Language.English:
+          lang_matches = [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and IVA_LANGUAGES.get(int(t.get('subtitle_lang_code') or -1)) == lang]
+          lang_matches += [t for t in xml.xpath('//extra') if t.get('type') == 'trailer' and IVA_LANGUAGES.get(int(t.get('lang_code') or -1)) == lang]
+          if len(lang_matches) > 0:
+            extra = lang_matches[0]
+            spoken_lang = IVA_LANGUAGES.get(int(extra.get('lang_code') or -1)) or Locale.Language.Unknown
+            extras[0]['lang'] = spoken_lang
+            extras[0]['extra'].url = IVA_ASSET_URL % (extra.get('iva_id'), spoken_lang, extra.get('bitrates') or '', int(extra.get('duration') or 0))
+            extras[0]['extra'].thumb = extra.get('thumb') or ''
+            Log('Adding trailer with spoken language %s and subtitled langauge %s to match library language.' % (spoken_lang, IVA_LANGUAGES.get(int(extra.get('subtitle_lang_code') or -1)) or Locale.Language.Unknown))
+
+        # Clean up the found extras.
+        extras = [scrub_extra(extra, media_title) for extra in extras]
+
+        # Add them in the right order to the metadata.extras list.
+        for extra in extras:
+          metadata.extras.add(extra['extra'])
+
+        Log('Added %d of %d extras.' % (len(metadata.extras), len(xml.xpath('//extra'))))
+
+      except HTTPError, e:
+        if e.code == 403:
+          Log('Skipping online extra lookup (an active Plex Pass is required).')
+
+    # Rotten Tomatoes Ratings and Reviews.
+
+    # Do a quick check to make sure we've got the attributes available in this
+    # framework version, and that the server is new enough to read them.
+    #
+    try:
+      find_ratings = True
+
+      if not hasattr(metadata, 'audience_rating'):
+        find_ratings = False
+        Log('Not adding Rotten Tomatoes ratings: Framework v2.5.1+ required.')
+
+      if not Util.VersionAtLeast(Platform.ServerVersion, 0,9,9,16):
+        find_ratings = False
+        Log('Not adding Rotten Tomateos ratings: Server v0.9.9.16+ required.')
+
+      # Ratings.
+      if find_ratings and movie.xpath('rating') is not None:
+
+        rating_image_identifiers = {'Certified Fresh' : 'rottentomatoes://image.rating.certified', 'Fresh' : 'rottentomatoes://image.rating.ripe', 'Ripe' : 'rottentomatoes://image.rating.ripe', 'Rotten' : 'rottentomatoes://image.rating.rotten', None : ''}
+        audience_rating_image_identifiers = {'Upright' : 'rottentomatoes://image.rating.upright', 'Spilled' : 'rottentomatoes://image.rating.spilled', None : ''}
+
+        ratings = movie.xpath('//ratings')
+        if ratings:
+
+          ratings = ratings[0]
+          metadata.rating = float(ratings.get('critics_score') or 0) / 10
+          metadata.rating_image = rating_image_identifiers[ratings.get('critics_rating')]
+
+          metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
+          metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
+
+      # Reviews.
+      metadata.reviews.clear()
+      if find_ratings:
+        for review in movie.xpath('//review'):
+          r = metadata.reviews.new()
+          r.author = review.get('critic')
+          r.source = review.get('publication')
+          r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
+          r.link = review.get('link')
+          r.text = review.text
+    except Exception, e:
+      Log('Error obtaining Rotten tomato data for %s: %s' % (guid, str(e)))
+
+    try:
+      # chapters
+      chapterAgent = PlexChapterDBAgent()
+      chapterAgent.update(metadata, media, lang)
+    except Exception, e:
+      Log('Error obtaining Plex movie Chapter data for %s: %s' % (guid, str(e)))
 
     m = re.search('(tt[0-9]+)', metadata.guid)
     if m and not metadata.year:

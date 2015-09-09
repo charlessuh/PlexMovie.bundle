@@ -523,7 +523,7 @@ class PlexMovieAgent(Agent.Movies):
 
       if len(movie.xpath('//title')) == 0:
         Log('No Freebase detials found for %s, aborting.' % guid)
-        return
+        raise RuntimeWarning('No details found.')
 
       # Title.
       if not setTitle:

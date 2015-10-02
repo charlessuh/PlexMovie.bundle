@@ -68,14 +68,14 @@ IVA_LANGUAGES = {-1   : Locale.Language.Unknown,
 
 
 # TMDb Cut & Pasted constants
-BASE_URL = 'https://api.tmdb.org/3' # TODO Possibly put this behind cloudflare?
-API_KEY = 'a3dc111e66105f6387e99393813ae4d5'
-TMDB_CONFIG = '%s/configuration?api_key=%s' % (BASE_URL, API_KEY)
+TMDB_BASE_URL = 'https://api.tmdb.org/3' # TODO Possibly put this behind cloudflare?
+TMDB_API_KEY = 'a3dc111e66105f6387e99393813ae4d5'
+TMDB_CONFIG = '%s/configuration?api_key=%s' % (TMDB_BASE_URL, TMDB_API_KEY)
 
 # Movies
-TMDB_MOVIE_SEARCH = '%s/search/movie?api_key=%s&query=%%s&year=%%s&language=%%s&include_adult=%%s' % (BASE_URL, API_KEY)
-TMDB_MOVIE = '%s/movie/%%s?api_key=%s&append_to_response=releases,credits&language=%%s' % (BASE_URL, API_KEY)
-TMDB_MOVIE_IMAGES = '%s/movie/%%s/images?api_key=%s' % (BASE_URL, API_KEY)
+TMDB_MOVIE_SEARCH = '%s/search/movie?api_key=%s&query=%%s&year=%%s&language=%%s&include_adult=%%s' % (TMDB_BASE_URL, TMDB_API_KEY)
+TMDB_MOVIE = '%s/movie/%%s?api_key=%s&append_to_response=releases,credits&language=%%s' % (TMDB_BASE_URL, TMDB_API_KEY)
+TMDB_MOVIE_IMAGES = '%s/movie/%%s/images?api_key=%s' % (TMDB_BASE_URL, TMDB_API_KEY)
 
 ARTWORK_ITEM_LIMIT = 15
 POSTER_SCORE_RATIO = .3 # How much weight to give ratings vs. vote counts when picking best posters. 0 means use only ratings.

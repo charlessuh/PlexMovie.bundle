@@ -1233,7 +1233,10 @@ def tmdb_dict_to_movie_metadata_obj(metadata_dict, metadata):
 
     elif attr_name is 'originally_available_at':
 
-        attr_obj.setcontent(Datetime.FromTimestamp(dict_value))
+        try:
+          attr_obj.setcontent(Datetime.ParseDate(dict_value).date())
+        except:
+          pass
 
     else:
       attr_obj.setcontent(dict_value)
@@ -1289,9 +1292,8 @@ def PerformTMDbMovieUpdate(metadata_id, lang):  # Shared with TheMovieDB.bundle
 
   # Release date.
   try:
-    originally_available_at_date_obj = Datetime.ParseDate(tmdb_dict['release_date']).date()
-    metadata['originally_available_at'] = Datetime.TimestampFromDatetime(originally_available_at_date_obj)
-    metadata['year'] = originally_available_at_date_obj.year
+    metadata['originally_available_at'] = tmdb_dict['release_date']
+    metadata['year'] = Datetime.ParseDate(tmdb_dict['release_date']).date().year
   except:
     pass
 
@@ -1310,9 +1312,11 @@ def PerformTMDbMovieUpdate(metadata_id, lang):  # Shared with TheMovieDB.bundle
 
         # Release date (country specific).
         if 'release_date' in country and country['release_date'] != '':
-          originally_available_at_date_obj = Datetime.ParseDate(country['release_date']).date()
-          metadata['originally_available_at'] = Datetime.TimestampFromDatetime(originally_available_at_date_obj)
-          metadata['year'] = originally_available_at_date_obj.year
+          try:
+            metadata['originally_available_at'] = country['release_date']
+            metadata['year'] = Datetime.ParseDate(country['release_date']).date().year
+          except:
+            pass
 
         break
 

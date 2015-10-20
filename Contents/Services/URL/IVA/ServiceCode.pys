@@ -42,7 +42,7 @@ def MediaObjectsForURL(url):
     height = 1080
 
     for fmt, info in ADAPTIVE_FORMATS.iteritems():
-      bitrate = 2500 + fmt
+      bitrate = 2500
       ext = info[0]
       container = info[1]
       protocol = info[2]
@@ -54,7 +54,7 @@ def MediaObjectsForURL(url):
     if dts:
       for fmt, info in ADAPTIVE_FORMATS.iteritems():
         fmt = fmt + 4
-        bitrate = 2500 + fmt
+        bitrate = 2500
         ext = info[0]
         container = info[1]
         protocol = info[2]

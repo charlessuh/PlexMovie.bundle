@@ -694,9 +694,10 @@ class PlexMovieAgent(Agent.Movies):
         metadata.genres.add(genre)
 
       # Actors.
-      if Prefs['cast_list'] != 'The Movie Database' or len(metadata.roles) < 1:
+      actors_xml = movie.xpath('actor')
+      if Prefs['cast_list'] != 'The Movie Database' or len(metadata.roles) < 1 and len(actors_xml) > 0:
         metadata.roles.clear()
-        for movie_role in movie.xpath('actor'):
+        for movie_role in actors_xml:
           role = metadata.roles.new()
           if movie_role.get('role'):
             role.role = movie_role.get('role')

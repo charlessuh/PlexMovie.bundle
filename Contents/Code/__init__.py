@@ -783,6 +783,8 @@ class PlexMovieAgent(Agent.Movies):
           try:
             metadata.rating = (int(imdb_rating.get('audience_score')) or 0) / 10.0
             metadata.audience_rating = 0.0
+            metadata.rating_image = 'imdb://image.rating'
+            metadata.audience_rating_image = None
           except TypeError:
             pass
     except Exception, e:
@@ -1280,6 +1282,8 @@ def PerformTMDbMovieUpdate(metadata_id, lang):  # Shared with TheMovieDB.bundle
   if votes > 3:
     metadata['rating'] = rating
     metadata['audience_ratinge'] = 0.0
+    metadata['rating_image'] = None
+    metadata['audience_rating_image'] = None
 
   # Title of the film.
   metadata['title'] = tmdb_dict['title']

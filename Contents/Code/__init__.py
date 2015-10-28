@@ -951,12 +951,13 @@ class PlexMovieAgent(Agent.Movies):
       metadata.reviews.clear()
       if find_ratings:
         for review in movie.xpath('//review'):
-          r = metadata.reviews.new()
-          r.author = review.get('critic')
-          r.source = review.get('publication')
-          r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
-          r.link = review.get('link')
-          r.text = review.text
+          if review.text not in [None, False, '']:
+            r = metadata.reviews.new()
+            r.author = review.get('critic')
+            r.source = review.get('publication')
+            r.image = 'rottentomatoes://image.review.fresh' if review.get('freshness') == 'fresh' else 'rottentomatoes://image.review.rotten'
+            r.link = review.get('link')
+            r.text = review.text
     except Exception, e:
       Log('Error obtaining Rotten tomato data for %s: %s' % (guid, str(e)))
 

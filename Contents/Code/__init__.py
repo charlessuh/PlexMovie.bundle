@@ -150,7 +150,10 @@ class PlexMovieAgent(Agent.Movies):
       return
 
     options['identifier'] = 'com.plexapp.agents.imdb'
-    metric_req = HTTP.Request(PLEX_METRICS_URL, data='%s' % dict(category='agent_event', action=action, options=options), method='GET')
+    try:
+      metric_req = HTTP.Request(PLEX_METRICS_URL, data='%s' % dict(category='agent_event', action=action, options=options), method='GET')
+    except:
+      pass
 
   def getPlexMovieResults(self, media, matches, search_type='hash', plex_hash=''):
     if search_type is 'hash' and plex_hash is not None:

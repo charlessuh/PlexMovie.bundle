@@ -946,8 +946,10 @@ class PlexMovieAgent(Agent.Movies):
           metadata.rating = float(ratings.get('critics_score') or 0) / 10
           metadata.rating_image = rating_image_identifiers[ratings.get('critics_rating')]
 
-          metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
-          metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
+          # 'Unreleased' films can have a critics rating w/o an audience rating
+          if ratings.get('audience_score') and ratings.get('audience_rating'):
+            metadata.audience_rating = float(ratings.get('audience_score') or 0) / 10
+            metadata.audience_rating_image = audience_rating_image_identifiers[ratings.get('audience_rating')]
 
       # Reviews.
       metadata.reviews.clear()

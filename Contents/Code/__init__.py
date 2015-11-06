@@ -1,5 +1,4 @@
 import re, time, unicodedata, hashlib, urllib, urlparse, types
-from urllib2 import HTTPError
 from chapterdb import PlexChapterDBAgent
 import countrycode
 
@@ -914,7 +913,7 @@ class PlexMovieAgent(Agent.Movies):
 
         Log('Added %d of %d extras.' % (len(metadata.extras), len(xml.xpath('//extra'))))
 
-      except HTTPError, e:
+      except Ex.HTTPError, e:
         if e.code == 403:
           Log('Skipping online extra lookup (an active Plex Pass is required).')
 

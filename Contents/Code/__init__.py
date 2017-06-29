@@ -79,10 +79,10 @@ def Start():
   HTTP.CacheTime = CACHE_1WEEK
   
 class PlexMovieAgent(Agent.Movies):
-  name = 'Plex Movie'
+  name = 'My Plex Movie'
   primary_provider = True
   accepts_from = ['com.plexapp.agents.localmedia']
-  contributes_to = ['com.plexapp.agents.themoviedb']
+  contributes_to = ['com.github.charlessuh.plexapp.agents.themoviedb']
 
   languages = [Locale.Language.English, Locale.Language.Swedish, Locale.Language.French, 
                Locale.Language.Spanish, Locale.Language.Dutch, Locale.Language.German, 
@@ -365,7 +365,7 @@ class PlexMovieAgent(Agent.Movies):
       theGuid = media.guid or media.name
       
       # If this looks like a TMDB GUID, get the IMDB ID.
-      tmdb_search = re.search(r'^(com.plexapp.agents.themoviedb://)([\d]+)\?.+', theGuid)
+      tmdb_search = re.search(r'^(plexapp.agents.themoviedb://)([\d]+)\?.+', theGuid)
       if tmdb_search and tmdb_search.group(1) and tmdb_search.group(2):
         theGuid = imdb_id_from_tmdb(tmdb_search.group(2))
 
@@ -494,7 +494,7 @@ class PlexMovieAgent(Agent.Movies):
   def update(self, metadata, media, lang, force=False):
 
     # If this looks like a TMDB GUID, get the IMDB ID.
-    tmdb_search = re.search(r'^(com.plexapp.agents.themoviedb://)([\d]+)\?.+', metadata.guid)
+    tmdb_search = re.search(r'^(plexapp.agents.themoviedb://)([\d]+)\?.+', metadata.guid)
     if tmdb_search and tmdb_search.group(1) and tmdb_search.group(2):
       guid = imdb_id_from_tmdb(tmdb_search.group(2))
     else:
@@ -1031,7 +1031,7 @@ def imdb_id_from_tmdb(tmdb_id):
   imdb_id = None
 
   try:
-    imdb_id = Core.messaging.call_external_function('com.plexapp.agents.themoviedb', 'MessageKit:GetImdbId', kwargs=dict(tmdb_id=tmdb_id))
+    imdb_id = Core.messaging.call_external_function('com.github.charlessuh.plexapp.agents.themoviedb', 'MessageKit:GetImdbId', kwargs=dict(tmdb_id=tmdb_id))
   except Ex.HTTPError, e:
     Log('Error: Cannot get imdb id from tmdb id (%s) - %s' % (tmdb_id, str(e)))
 

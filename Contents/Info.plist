@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.plexapp.agents.imdb</string>
+	<string>com.github.charlessuh.plexapp.agents.imdb</string>
 	<key>PlexAgentAttributionText</key>
 	<string>
 		Primary metadata provided by &lt;a href=&quot;http://www.imdb.com/&quot;&gt;IMDb&lt;/a&gt;&lt;br/&gt;

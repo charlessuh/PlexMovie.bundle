@@ -6,8 +6,8 @@
 	<string>com.plexapp.agents.imdb</string>
 	<key>PlexAgentAttributionText</key>
 	<string>
-		&lt;a href=&quot;http://www.freebase.com/&quot;&gt;Freebase&lt;/a&gt;, licensed under
-		&lt;a href=&quot;http://creativecommons.org/licenses/by/2.5/&quot;&gt;CC-BY&lt;/a&gt;&lt;br/&gt;
+		Primary metadata provided by &lt;a href=&quot;http://www.imdb.com/&quot;&gt;IMDb&lt;/a&gt;&lt;br/&gt;
+		Additional metadata provided by &lt;a href=&quot;http://www.themoviedb.org&quot;&gt;The Movie Database&lt;/a&gt;, a free and open movie database. &lt;br/&gt;
 		Video previews provided by &lt;a href=&quot;http://internetvideoarchive.com&quot;&gt;Internet Video Archive&lt;/a&gt;&lt;br/&gt;
 		Other content from
 		&lt;a href=&quot;http://en.wikipedia.org/&quot;&gt;Wikipedia&lt;/a&gt;,

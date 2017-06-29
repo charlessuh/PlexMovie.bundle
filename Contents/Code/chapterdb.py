@@ -5,7 +5,7 @@ from urllib2 import HTTPError
 # [might want to look into language/country stuff at some point] 
 # param info here: http://code.google.com/apis/ajaxsearch/documentation/reference.html
 #
-CHAPTERDB_URL       = 'http://chapterdb.plex.tv'
+CHAPTERDB_URL       = 'https://chapterdb.plex.tv'
 CHAPTERDB_BASE      = 'chapters'
 CHAPTERDB_SEARCH    = 'search?title='
 API_KEY             = 'O98XUZA7ORFGADJR3L1X'
@@ -90,9 +90,8 @@ class PlexChapterDBAgent():
   
   def getPartDuration(self, part):
     duration = 0
-    for stream in part.streams:
-      if (hasattr(stream, 'duration') and stream.duration > duration):
-        duration = int(stream.duration)
+    if (hasattr(part, 'duration')):
+      duration = int(part.duration)
     
     return duration
   

@@ -12,6 +12,12 @@
     "default":"true"
   },
   {
+    "id":"only_trailers",
+    "label":"Skip extras which aren't trailers",
+    "type":"bool",
+    "default":"false"
+  },
+  {
     "id":"redband",
     "label":"Use red band (restricted audiences) trailers when available",
     "type":"bool",
@@ -28,21 +34,19 @@
     "label": "Cast List Source: ",
     "type": "enum",
     "values": [
-      "",
       "IMDb",
       "The Movie Database"
     ],
-    "default": "IMDb"
+    "default": "The Movie Database"
   },
   {
     "id": "ratings",
     "label": "Ratings Source: ",
     "type": "enum",
     "values": [
-      "",
+      "Rotten Tomatoes",
       "IMDb",
-      "The Movie Database",
-      "Rotten Tomatoes"
+      "The Movie Database"
     ],
     "default": "Rotten Tomatoes"
   },
@@ -51,7 +55,6 @@
     "label": "Plot Summary Source: ",
     "type": "enum",
     "values": [
-      "",
       "IMDb",
       "The Movie Database"
     ],
@@ -62,7 +65,6 @@
     "label": "Country: ",
     "type": "enum",
     "values": [
-      "",
       "Argentina",
       "Australia",
       "Austria",
@@ -132,11 +134,5 @@
     "label": "Include adult content",
     "type": "bool",
     "default": "false"
-  },
-  {
-    "id": "usage",
-    "label": "Send anonymous usage data to Plex",
-    "type": "bool",
-    "default": "true"
   }
 ]

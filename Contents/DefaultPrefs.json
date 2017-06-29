@@ -30,6 +30,18 @@
     "default":"false"
   },
   {
+    "id": "search_freebase",
+    "label": "Search Freebase",
+    "type": "bool",
+    "default": "false"
+  },
+  {
+    "id": "search_tmdb",
+    "label": "Search TMDb",
+    "type": "bool",
+    "default": "true"
+  },
+  {
     "id": "cast_list",
     "label": "Cast List Source: ",
     "type": "enum",
@@ -134,5 +146,11 @@
     "label": "Include adult content",
     "type": "bool",
     "default": "false"
+  },
+  {
+    "id": "rawsearchorder_tmdb",
+    "label": "Use search result order as returned from The Movie Database",
+    "type": "bool",
+    "default": "true"
   }
 ]

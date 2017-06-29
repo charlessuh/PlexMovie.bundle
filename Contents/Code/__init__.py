@@ -241,12 +241,12 @@ class PlexMovieAgent(Agent.Movies):
         tmdb_dict = GetTMDBJSON(url=TMDB_MOVIE_SEARCH % (String.Quote(media.name, True), year, lang, include_adult))
 
       if isinstance(tmdb_dict, dict) and 'results' in tmdb_dict:
+        tmdb_results = tmdb_dict['results']
+        if not Prefs['rawsearchorder_tmdb']:
+          tmdb_results = sorted(tmdb_results, key=lambda k: k['popularity'], reverse=True)
 
-        for i, movie in enumerate(sorted(tmdb_dict['results'], key=lambda k: k['popularity'], reverse=True)):
+        for i, movie in enumerate(tmdb_results):
           score = 90
-          score = score - abs(String.LevenshteinDistance(movie['title'].lower(), media.name.lower()))
-
-          # Adjust score slightly for 'popularity' (helpful for similar or identical titles when no media.year is present)
           score = score - (5 * i)
 
           if 'release_date' in movie and movie['release_date']:
@@ -254,13 +254,16 @@ class PlexMovieAgent(Agent.Movies):
           else:
             release_year = -1
 
-          if media.year and int(media.year) > 1900 and release_year:
-            per_year_penalty = int(YEAR_PENALTY_MAX / 3)
-            year_delta = abs(int(media.year) - (int(release_year)))
-            if year_delta > 3:
-              score = score - YEAR_PENALTY_MAX
-            else:
-              score = score - year_delta * per_year_penalty
+          if not Prefs['rawsearchorder_tmdb']:
+            score = score - abs(String.LevenshteinDistance(movie['title'].lower(), media.name.lower()))
+
+            if media.year and int(media.year) > 1900 and release_year:
+              per_year_penalty = int(YEAR_PENALTY_MAX / 3)
+              year_delta = abs(int(media.year) - (int(release_year)))
+              if year_delta > 3:
+                score = score - YEAR_PENALTY_MAX
+              else:
+                score = score - year_delta * per_year_penalty
 
           if score <= 0:
             continue
@@ -392,7 +395,7 @@ class PlexMovieAgent(Agent.Movies):
     # Grab hash matches first, since a perfect score based on hash is almost certainly correct.
     # Build plex hash list and search each one.
     plexHashes = []
-    if manual or continueSearch:
+    if Prefs['search_freebase'] and manual or continueSearch:
       try:
         for item in media.items:
           for part in item.parts:
@@ -427,7 +430,7 @@ class PlexMovieAgent(Agent.Movies):
         continueSearch = False
 
     # Grab title/year matches.
-    if manual or continueSearch:
+    if Prefs['search_freebase'] and manual or continueSearch:
       bestHitScore = 0
       self.getPlexMovieResults(media, title_year_matches, search_type='title/year')
       self.scoreResults(media, title_year_matches)
@@ -453,7 +456,7 @@ class PlexMovieAgent(Agent.Movies):
         continueSearch = False
 
     # Search TMDb
-    if manual or continueSearch:
+    if Prefs['search_tmdb'] and manual or continueSearch:
 
       Log('---- TMDb RESULTS MAP ----')
       continueSearch = self.perform_tmdb_movie_search(results, media, lang, manual, True)
